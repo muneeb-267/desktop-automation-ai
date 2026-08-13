@@ -43,12 +43,12 @@ class AutomationPipeline:
         self._stop_requested = True
 
     def apply_user_settings(self, user_id: int) -> None:
-        conf = self.conf_repo.get_for_user(user_id)
+        conf = self.conf_repo.get_map(user_id)
         if not conf:
             return
-        self.automation.set_dry_run(bool(conf["dry_run"]))
-        self.automation.failsafe = bool(conf["failsafe"])
-        self.automation.pause_seconds = float(conf["pause_seconds"])
+        self.automation.set_dry_run(str(conf.get("dry_run", "1")) in ("1", "true", "True"))
+        self.automation.failsafe = str(conf.get("failsafe", "1")) in ("1", "true", "True")
+        self.automation.pause_seconds = float(conf.get("pause_seconds", 0.35))
 
     def run_text_command(
         self,
@@ -66,7 +66,7 @@ class AutomationPipeline:
         parsed = self.nlp.parse(text)
         command_id = self.nlp_repo.create(
             raw_text=text,
-            intent=parsed.intent,
+            parsed_intent=parsed.intent,
             entities=parsed.entities,
             confidence=parsed.confidence,
             source=source,

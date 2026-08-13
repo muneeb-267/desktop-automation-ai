@@ -23,11 +23,11 @@ def test_schema_seed_and_crud(tmp_path: Path):
     users = UserRepository(db)
     user = users.authenticate("demo", "demo123")
     assert user is not None
-    assert user["password_hash"] == hash_password("demo123")
+    assert user["password"] == hash_password("demo123")
+    assert "email" in user
 
-    conf = UserConfRepository(db).get_for_user(user["user_id"])
-    assert conf is not None
-    assert conf["dry_run"] == 1
+    conf = UserConfRepository(db).get_map(user["user_id"])
+    assert conf.get("dry_run") == "1"
 
     wfs = WorkflowRepository(db).list_for_user(user["user_id"])
     assert any(w["name"] == "Open Notepad Demo" for w in wfs)
@@ -35,12 +35,16 @@ def test_schema_seed_and_crud(tmp_path: Path):
     assert len(tasks) >= 1
 
     cmd_id = NLPCommandRepository(db).create(
-        "open chrome", "open_app", {"app": "chrome"}, 0.9, user_id=user["user_id"]
+        "open chrome",
+        "open_app",
+        {"app": "chrome"},
+        0.9,
+        user_id=user["user_id"],
     )
     log_id = ExecutionLogRepository(db).create(
         "Success", 12, details={"ok": True}, user_id=user["user_id"], command_id=cmd_id
     )
-    ScreenCaptureRepository(db).create("/tmp/fake.png", log_id=log_id, label="test")
-    assert ExecutionLogRepository(db).recent(5)
+    ScreenCaptureRepository(db).create("/tmp/fake.png", log_id=log_id, width=100, height=50, element_found="Login")
+    assert ExecutionLogRepository(db).recent(user_id=user["user_id"], limit=5)
     db.close()
     reset_database_singleton()

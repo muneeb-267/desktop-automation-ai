@@ -1,4 +1,4 @@
-"""SQLite connection helpers and schema bootstrap."""
+"""SQLite connection helpers and schema bootstrap (ERD-aligned)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.config import ROOT_DIR, ensure_runtime_dirs, load_config, resolve_path
+from src.config import ensure_runtime_dirs, load_config, resolve_path
 
 _SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 _db_singleton: Optional["Database"] = None
@@ -48,59 +48,109 @@ class Database:
         auth = config.get("auth", {})
         username = auth.get("default_username", "demo")
         password = auth.get("default_password", "demo123")
-        display = auth.get("default_display_name", "Demo User")
+        email = auth.get("default_email", "demo@automate.ai")
         existing = self.fetchone("SELECT user_id FROM User WHERE username = ?", (username,))
         if existing:
             return
+
         cur = self.execute(
-            "INSERT INTO User (username, password_hash, display_name) VALUES (?, ?, ?)",
-            (username, hash_password(password), display),
-        )
-        user_id = cur.lastrowid
-        ui = config.get("ui", {})
-        speech = config.get("speech", {})
-        auto = config.get("automation", {})
-        self.execute(
             """
-            INSERT INTO User_Conf (
-                user_id, theme, mic_sensitivity, dry_run, failsafe, pause_seconds
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO User (username, email, password, is_active)
+            VALUES (?, ?, ?, 1)
             """,
+            (username, email, hash_password(password)),
+        )
+        user_id = int(cur.lastrowid)
+
+        defaults = {
+            "theme": config.get("ui", {}).get("theme", "light"),
+            "mic_sensitivity": str(config.get("speech", {}).get("mic_sensitivity", 0.7)),
+            "dry_run": "1" if config.get("automation", {}).get("dry_run", True) else "0",
+            "failsafe": "1" if config.get("automation", {}).get("failsafe", True) else "0",
+            "pause_seconds": str(config.get("automation", {}).get("pause_seconds", 0.35)),
+            "voice_sensitivity": "0.7",
+            "recognition_confidence": "0.85",
+        }
+        for key, value in defaults.items():
+            self.execute(
+                "INSERT INTO User_Conf (conf_key, conf_value, user_id) VALUES (?, ?, ?)",
+                (key, value, user_id),
+            )
+
+        sample_workflows = [
             (
-                user_id,
-                ui.get("theme", "light"),
-                float(speech.get("mic_sensitivity", 0.7)),
-                1 if auto.get("dry_run", True) else 0,
-                1 if auto.get("failsafe", True) else 0,
-                float(auto.get("pause_seconds", 0.35)),
+                "Morning Study Setup",
+                "Open notes and prepare study apps",
+                "voice",
+                [
+                    (1, "open_app", "notepad", "", "", "{}"),
+                    (2, "wait", "", "", "1", '{"seconds":1}'),
+                    (3, "type_text", "notepad", "", "Morning study checklist", "{}"),
+                ],
             ),
-        )
-        # Sample workflow for demos
-        self.execute(
-            """
-            INSERT INTO Workflow (user_id, name, description)
-            VALUES (?, ?, ?)
-            """,
-            (user_id, "Open Notepad Demo", "Sample multi-step workflow"),
-        )
-        wf = self.fetchone(
-            "SELECT workflow_id FROM Workflow WHERE user_id = ? AND name = ?",
-            (user_id, "Open Notepad Demo"),
-        )
-        if wf:
-            wid = wf["workflow_id"]
+            (
+                "Open Chrome & Gmail",
+                "Launch browser and focus inbox workflow",
+                "manual",
+                [
+                    (1, "open_app", "chrome", "", "", "{}"),
+                    (2, "wait", "", "", "1", '{"seconds":1}'),
+                    (3, "search_web", "chrome", "", "gmail", '{"query":"gmail"}'),
+                ],
+            ),
+            (
+                "University Portal Login",
+                "Open browser for portal login assist",
+                "manual",
+                [
+                    (1, "open_app", "chrome", "", "", "{}"),
+                    (2, "wait", "", "", "1", '{"seconds":1}'),
+                ],
+            ),
+            (
+                "Open Notepad Demo",
+                "Sample multi-step workflow",
+                "manual",
+                [
+                    (1, "open_app", "notepad", "", "", "{}"),
+                    (2, "wait", "", "", "1", '{"seconds":1}'),
+                    (3, "type_text", "notepad", "", "Hello from Automate AI", "{}"),
+                ],
+            ),
+            (
+                "Open File Explorer",
+                "Launch file manager",
+                "manual",
+                [(1, "open_app", "explorer", "", "", "{}")],
+            ),
+            (
+                "Daily Research Setup",
+                "Browser + search for research",
+                "voice",
+                [
+                    (1, "open_app", "chrome", "", "", "{}"),
+                    (2, "search_web", "chrome", "", "latest research papers", "{}"),
+                ],
+            ),
+        ]
+
+        for name, desc, trigger, steps in sample_workflows:
+            wcur = self.execute(
+                """
+                INSERT INTO Workflow (name, description, trigger_type, is_active, user_id)
+                VALUES (?, ?, ?, 1, ?)
+                """,
+                (name, desc, trigger, user_id),
+            )
+            wid = int(wcur.lastrowid)
             self.execute(
                 """
-                INSERT INTO AutomationRule (workflow_id, name, condition_json, priority)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO AutomationRule
+                    (condition, action, priority, rule_name, is_active, workflow_id)
+                VALUES (?, ?, ?, ?, 1, ?)
                 """,
-                (wid, "Always run", '{"when":"manual"}', 10),
+                ('{"when":"manual"}', "run_workflow", 10, "Always run", wid),
             )
-            steps = [
-                (1, "open_app", "notepad", "", "", "{}"),
-                (2, "wait", "", "", "1", '{"seconds":1}'),
-                (3, "type_text", "notepad", "", "Hello from Desktop Automation AI", "{}"),
-            ]
             for order, intent, app, element, value, params in steps:
                 self.execute(
                     """
@@ -120,6 +170,19 @@ def get_database(config: Optional[Dict[str, Any]] = None) -> Database:
     cfg = config or load_config()
     ensure_runtime_dirs(cfg)
     db_path = resolve_path(cfg["paths"]["db_file"])
+    # Recreate DB if schema is outdated (missing ERD columns)
+    recreate = False
+    if db_path.exists():
+        probe = sqlite3.connect(str(db_path))
+        try:
+            cols = [r[1] for r in probe.execute("PRAGMA table_info(User)").fetchall()]
+            if "email" not in cols or "password" not in cols:
+                recreate = True
+        finally:
+            probe.close()
+        if recreate:
+            db_path.unlink(missing_ok=True)
+
     db = Database(db_path)
     db.initialize_schema()
     db.seed_defaults(cfg)

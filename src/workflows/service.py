@@ -41,9 +41,10 @@ class WorkflowService:
         name: str,
         description: str = "",
         tasks: Optional[List[Dict[str, Any]]] = None,
+        trigger_type: str = "manual",
     ) -> int:
-        wid = self.workflows.create(user_id, name, description)
-        self.rules.add(wid, "Always run", {"when": "manual"}, priority=10)
+        wid = self.workflows.create(user_id, name, description, trigger_type=trigger_type)
+        self.rules.add(wid, "Always run", condition='{"when":"manual"}', action="run_workflow", priority=10)
         if tasks:
             self.tasks.replace_tasks(wid, tasks)
         return wid
@@ -56,7 +57,6 @@ class WorkflowService:
 
     def save_tasks(self, workflow_id: int, tasks: List[Dict[str, Any]]) -> None:
         self.tasks.replace_tasks(workflow_id, tasks)
-        self.workflows.touch(workflow_id)
 
     def find_by_name(self, user_id: int, name: str) -> Optional[Dict[str, Any]]:
         for wf in self.list_workflows(user_id):
@@ -65,7 +65,6 @@ class WorkflowService:
         return None
 
     def tasks_from_action_history(self, history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Convert automation engine history into Task rows."""
         mapped: List[Dict[str, Any]] = []
         for item in history:
             action = item.get("action")
@@ -155,7 +154,7 @@ class WorkflowService:
         elif intent == "wait":
             entities["seconds"] = float(entities.get("seconds") or task.get("input_value") or 1)
         elif intent == "search_web":
-            entities["query"] = task.get("input_value", "")
+            entities["query"] = task.get("input_value", "") or entities.get("query", "")
         elif intent == "scroll":
             entities.setdefault("direction", "down")
             entities.setdefault("amount", 3)

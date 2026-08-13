@@ -1,7 +1,9 @@
 app:
-  name: "Desktop Automation Using AI"
+  name: "Automate AI"
+  product_name: "AI Desktop Automation"
   group_id: "S26CS089"
-  version: "1.0.0"
+  version: "0.1.2-alpha"
+  tagline: "Control your desktop using voice commands."
 
 paths:
   data_dir: "data"
@@ -12,10 +14,10 @@ paths:
 
 ui:
   theme: "light"
-  window_width: 1280
-  window_height: 800
-  min_width: 1100
-  min_height: 700
+  window_width: 1360
+  window_height: 860
+  min_width: 1180
+  min_height: 720
 
 speech:
   ambient_seconds: 0.4
@@ -43,4 +45,5 @@ automation:
 auth:
   default_username: "demo"
   default_password: "demo123"
+  default_email: "demo@automate.ai"
   default_display_name: "Demo User"

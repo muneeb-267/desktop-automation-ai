@@ -1,4 +1,4 @@
-"""Local login dialog."""
+"""Login / Landing screen matching Automate AI wireframe."""
 
 from __future__ import annotations
 
@@ -7,79 +7,195 @@ from typing import Any, Dict, Optional
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog,
+    QWidget,
+    QHBoxLayout,
     QVBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
-    QHBoxLayout,
-    QWidget,
+    QCheckBox,
     QMessageBox,
+    QFrame,
 )
 
-from src.db.repositories import UserRepository
+from src.db.repositories import UserRepository, UserConfRepository
 
 
 class LoginDialog(QDialog):
-    def __init__(self, users: UserRepository, app_name: str = "Desktop Automation Using AI", parent=None) -> None:
+    def __init__(
+        self,
+        users: UserRepository,
+        conf_repo: Optional[UserConfRepository] = None,
+        app_name: str = "Automate AI",
+        product_name: str = "AI Desktop Automation",
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.users = users
+        self.conf_repo = conf_repo
         self.user: Optional[Dict[str, Any]] = None
-        self.setWindowTitle(f"Sign in — {app_name}")
-        self.setModal(True)
-        self.setMinimumWidth(420)
+        self.setWindowTitle(f"Login / Landing — {app_name}")
+        self.setMinimumSize(1100, 680)
+        self.resize(1200, 740)
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(28, 28, 28, 28)
-        root.setSpacing(12)
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        card = QWidget()
-        card.setObjectName("loginCard")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(22, 22, 22, 22)
-        card_layout.setSpacing(10)
+        # Left brand panel
+        brand = QWidget()
+        brand.setObjectName("brandPanel")
+        brand.setMinimumWidth(520)
+        bl = QVBoxLayout(brand)
+        bl.setContentsMargins(48, 48, 48, 40)
+        bl.setSpacing(14)
 
-        brand = QLabel(app_name)
-        brand.setObjectName("appTitle")
-        brand.setAlignment(Qt.AlignCenter)
-        subtitle = QLabel("Local desktop assistant · Group S26CS089")
-        subtitle.setObjectName("appSubtitle")
-        subtitle.setAlignment(Qt.AlignCenter)
-        hint = QLabel("Default login: demo / demo123")
-        hint.setObjectName("sectionHint")
-        hint.setAlignment(Qt.AlignCenter)
+        logo_row = QHBoxLayout()
+        logo_mark = QLabel("⌁")
+        logo_mark.setStyleSheet(
+            "background:#111827;color:white;border-radius:8px;padding:6px 10px;font-size:16px;font-weight:800;"
+        )
+        logo_text = QLabel(app_name)
+        logo_text.setObjectName("brandLogo")
+        logo_row.addWidget(logo_mark)
+        logo_row.addWidget(logo_text)
+        logo_row.addStretch()
 
-        self.username = QLineEdit()
-        self.username.setPlaceholderText("Username")
-        self.username.setText("demo")
+        eyebrow = QLabel("AI-POWERED DESKTOP AUTOMATION")
+        eyebrow.setObjectName("brandEyebrow")
+        h1 = QLabel("Control your <u>desktop</u>")
+        h1.setObjectName("brandHeadline")
+        h1.setTextFormat(Qt.RichText)
+        h2 = QLabel("using voice commands.")
+        h2.setObjectName("brandHeadlineAccent")
+        body = QLabel(
+            "Use natural language to open applications, manage files, execute complex "
+            "workflows, and automate repetitive desktop tasks with our advanced AI orchestrator."
+        )
+        body.setObjectName("brandBody")
+        body.setWordWrap(True)
+
+        feature = QFrame()
+        feature.setObjectName("featureCard")
+        fl = QVBoxLayout(feature)
+        ft = QLabel("Say it. Automated.")
+        ft.setObjectName("featureCardTitle")
+        fb = QLabel(
+            "Our neural command engine translates complex natural language into precise "
+            "system-level executions within milliseconds."
+        )
+        fb.setObjectName("featureCardBody")
+        fb.setWordWrap(True)
+        fl.addWidget(ft)
+        fl.addWidget(fb)
+
+        feats = QLabel("🎙 Voice commands    🖥 Computer Vision    ⚡ Task Automation    🛡 Secure Execution")
+        feats.setObjectName("brandBody")
+
+        bl.addLayout(logo_row)
+        bl.addSpacing(24)
+        bl.addWidget(eyebrow)
+        bl.addWidget(h1)
+        bl.addWidget(h2)
+        bl.addWidget(body)
+        bl.addSpacing(10)
+        bl.addWidget(feature)
+        bl.addStretch()
+        bl.addWidget(feats)
+
+        # Right form panel
+        form = QWidget()
+        form.setObjectName("formPanel")
+        fr = QVBoxLayout(form)
+        fr.setContentsMargins(56, 64, 56, 40)
+        fr.setSpacing(12)
+
+        title = QLabel(product_name)
+        title.setObjectName("loginTitle")
+        subtitle = QLabel("Log in to your workspace to continue.")
+        subtitle.setObjectName("loginSubtitle")
+
+        email_lbl = QLabel("Email / Username")
+        self.email = QLineEdit()
+        self.email.setPlaceholderText("name@company.com")
+        self.email.setText("demo")
+
+        pass_row = QHBoxLayout()
+        pass_lbl = QLabel("Password")
+        forgot = QLabel('<a href="#">Forgot password?</a>')
+        forgot.setOpenExternalLinks(False)
+        pass_row.addWidget(pass_lbl)
+        pass_row.addStretch()
+        pass_row.addWidget(forgot)
+
         self.password = QLineEdit()
-        self.password.setPlaceholderText("Password")
         self.password.setEchoMode(QLineEdit.Password)
         self.password.setText("demo123")
+        self.password.setPlaceholderText("••••••••")
         self.password.returnPressed.connect(self._try_login)
 
-        btn_row = QHBoxLayout()
-        self.btn_login = QPushButton("Sign in")
+        self.keep = QCheckBox("Keep me signed in for 30 days")
+        self.btn_login = QPushButton("Sign In  →")
         self.btn_login.clicked.connect(self._try_login)
-        self.btn_cancel = QPushButton("Cancel")
-        self.btn_cancel.setObjectName("btnSecondary")
-        self.btn_cancel.clicked.connect(self.reject)
-        btn_row.addWidget(self.btn_cancel)
-        btn_row.addWidget(self.btn_login)
 
-        card_layout.addWidget(brand)
-        card_layout.addWidget(subtitle)
-        card_layout.addSpacing(8)
-        card_layout.addWidget(self.username)
-        card_layout.addWidget(self.password)
-        card_layout.addWidget(hint)
-        card_layout.addLayout(btn_row)
+        divider = QLabel("NEW TO AUTOMATE AI?")
+        divider.setAlignment(Qt.AlignCenter)
+        divider.setObjectName("loginSubtitle")
+        self.btn_signup = QPushButton("Sign Up Now")
+        self.btn_signup.setObjectName("btnSecondary")
+        self.btn_signup.clicked.connect(self._signup)
 
-        root.addWidget(card)
+        links = QLabel("Privacy Policy   ·   Terms of Service   ·   Help Center")
+        links.setObjectName("footerLabel")
+        links.setAlignment(Qt.AlignCenter)
+
+        fr.addWidget(title)
+        fr.addWidget(subtitle)
+        fr.addSpacing(18)
+        fr.addWidget(email_lbl)
+        fr.addWidget(self.email)
+        fr.addLayout(pass_row)
+        fr.addWidget(self.password)
+        fr.addWidget(self.keep)
+        fr.addSpacing(8)
+        fr.addWidget(self.btn_login)
+        fr.addSpacing(12)
+        fr.addWidget(divider)
+        fr.addWidget(self.btn_signup)
+        fr.addStretch()
+        fr.addWidget(links)
+
+        root.addWidget(brand, 5)
+        root.addWidget(form, 4)
 
     def _try_login(self) -> None:
-        user = self.users.authenticate(self.username.text().strip(), self.password.text())
+        user = self.users.authenticate(self.email.text().strip(), self.password.text())
         if not user:
-            QMessageBox.warning(self, "Sign in failed", "Invalid username or password.")
+            QMessageBox.warning(self, "Sign in failed", "Invalid email/username or password.")
             return
         self.user = user
         self.accept()
+
+    def _signup(self) -> None:
+        email = self.email.text().strip()
+        password = self.password.text()
+        if not email or not password:
+            QMessageBox.information(self, "Sign up", "Enter an email/username and password first.")
+            return
+        username = email.split("@")[0] if "@" in email else email
+        try:
+            uid = self.users.create(username=username, email=email if "@" in email else f"{email}@automate.ai", password=password)
+            if self.conf_repo:
+                for key, value in {
+                    "theme": "light",
+                    "dry_run": "1",
+                    "failsafe": "1",
+                    "mic_sensitivity": "0.7",
+                    "pause_seconds": "0.35",
+                    "voice_sensitivity": "0.7",
+                    "recognition_confidence": "0.85",
+                }.items():
+                    self.conf_repo.set(uid, key, value)
+            QMessageBox.information(self, "Account created", "Account created. Click Sign In.")
+        except Exception as exc:
+            QMessageBox.warning(self, "Sign up failed", str(exc))

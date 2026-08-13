@@ -1,4 +1,4 @@
-"""CRUD helpers for the eight SDS tables."""
+"""CRUD helpers for ERD tables."""
 
 from __future__ import annotations
 
@@ -12,12 +12,23 @@ class UserRepository:
     def __init__(self, db: Database) -> None:
         self.db = db
 
-    def authenticate(self, username: str, password: str) -> Optional[Dict[str, Any]]:
+    def authenticate(self, username_or_email: str, password: str) -> Optional[Dict[str, Any]]:
+        pwd = hash_password(password)
         row = self.db.fetchone(
-            "SELECT * FROM User WHERE username = ? AND password_hash = ?",
-            (username, hash_password(password)),
+            """
+            SELECT * FROM User
+            WHERE (username = ? OR email = ?) AND password = ? AND is_active = 1
+            """,
+            (username_or_email, username_or_email, pwd),
         )
         return dict(row) if row else None
+
+    def create(self, username: str, email: str, password: str) -> int:
+        cur = self.db.execute(
+            "INSERT INTO User (username, email, password, is_active) VALUES (?, ?, ?, 1)",
+            (username, email, hash_password(password)),
+        )
+        return int(cur.lastrowid)
 
     def get_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
         row = self.db.fetchone("SELECT * FROM User WHERE user_id = ?", (user_id,))
@@ -28,38 +39,33 @@ class UserConfRepository:
     def __init__(self, db: Database) -> None:
         self.db = db
 
-    def get_for_user(self, user_id: int) -> Optional[Dict[str, Any]]:
-        row = self.db.fetchone("SELECT * FROM User_Conf WHERE user_id = ?", (user_id,))
-        return dict(row) if row else None
+    def get_map(self, user_id: int) -> Dict[str, str]:
+        rows = self.db.fetchall(
+            "SELECT conf_key, conf_value FROM User_Conf WHERE user_id = ?",
+            (user_id,),
+        )
+        return {r["conf_key"]: r["conf_value"] for r in rows}
 
-    def update(
-        self,
-        user_id: int,
-        *,
-        theme: Optional[str] = None,
-        mic_sensitivity: Optional[float] = None,
-        dry_run: Optional[bool] = None,
-        failsafe: Optional[bool] = None,
-        pause_seconds: Optional[float] = None,
-    ) -> None:
-        current = self.get_for_user(user_id)
-        if not current:
-            return
+    def get(self, user_id: int, key: str, default: str = "") -> str:
+        row = self.db.fetchone(
+            "SELECT conf_value FROM User_Conf WHERE user_id = ? AND conf_key = ?",
+            (user_id, key),
+        )
+        return row["conf_value"] if row else default
+
+    def set(self, user_id: int, key: str, value: str) -> None:
         self.db.execute(
             """
-            UPDATE User_Conf
-            SET theme = ?, mic_sensitivity = ?, dry_run = ?, failsafe = ?, pause_seconds = ?
-            WHERE user_id = ?
+            INSERT INTO User_Conf (conf_key, conf_value, user_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id, conf_key) DO UPDATE SET conf_value = excluded.conf_value
             """,
-            (
-                theme if theme is not None else current["theme"],
-                mic_sensitivity if mic_sensitivity is not None else current["mic_sensitivity"],
-                int(dry_run) if dry_run is not None else current["dry_run"],
-                int(failsafe) if failsafe is not None else current["failsafe"],
-                pause_seconds if pause_seconds is not None else current["pause_seconds"],
-                user_id,
-            ),
+            (key, value, user_id),
         )
+
+    def update_many(self, user_id: int, values: Dict[str, Any]) -> None:
+        for key, value in values.items():
+            self.set(user_id, key, str(value))
 
 
 class WorkflowRepository:
@@ -68,7 +74,11 @@ class WorkflowRepository:
 
     def list_for_user(self, user_id: int) -> List[Dict[str, Any]]:
         rows = self.db.fetchall(
-            "SELECT * FROM Workflow WHERE user_id = ? ORDER BY updated_at DESC",
+            """
+            SELECT * FROM Workflow
+            WHERE user_id = ? AND is_active = 1
+            ORDER BY created_at DESC
+            """,
             (user_id,),
         )
         return [dict(r) for r in rows]
@@ -77,27 +87,34 @@ class WorkflowRepository:
         row = self.db.fetchone("SELECT * FROM Workflow WHERE workflow_id = ?", (workflow_id,))
         return dict(row) if row else None
 
-    def create(self, user_id: int, name: str, description: str = "") -> int:
+    def create(
+        self,
+        user_id: int,
+        name: str,
+        description: str = "",
+        trigger_type: str = "manual",
+    ) -> int:
         cur = self.db.execute(
-            "INSERT INTO Workflow (user_id, name, description) VALUES (?, ?, ?)",
-            (user_id, name, description),
+            """
+            INSERT INTO Workflow (user_id, name, description, trigger_type, is_active)
+            VALUES (?, ?, ?, ?, 1)
+            """,
+            (user_id, name, description, trigger_type),
         )
         return int(cur.lastrowid)
 
     def rename(self, workflow_id: int, name: str) -> None:
-        self.db.execute(
-            "UPDATE Workflow SET name = ?, updated_at = datetime('now') WHERE workflow_id = ?",
-            (name, workflow_id),
-        )
+        self.db.execute("UPDATE Workflow SET name = ? WHERE workflow_id = ?", (name, workflow_id))
 
     def delete(self, workflow_id: int) -> None:
-        self.db.execute("DELETE FROM Workflow WHERE workflow_id = ?", (workflow_id,))
+        self.db.execute("UPDATE Workflow SET is_active = 0 WHERE workflow_id = ?", (workflow_id,))
 
-    def touch(self, workflow_id: int) -> None:
-        self.db.execute(
-            "UPDATE Workflow SET updated_at = datetime('now') WHERE workflow_id = ?",
-            (workflow_id,),
+    def count_for_user(self, user_id: int) -> int:
+        row = self.db.fetchone(
+            "SELECT COUNT(*) AS c FROM Workflow WHERE user_id = ? AND is_active = 1",
+            (user_id,),
         )
+        return int(row["c"]) if row else 0
 
 
 class TaskRepository:
@@ -115,10 +132,7 @@ class TaskRepository:
         self.db.execute("DELETE FROM Task WHERE workflow_id = ?", (workflow_id,))
         for idx, task in enumerate(tasks, start=1):
             params = task.get("params") or task.get("params_json") or {}
-            if isinstance(params, dict):
-                params_json = json.dumps(params)
-            else:
-                params_json = str(params)
+            params_json = json.dumps(params) if isinstance(params, dict) else str(params)
             self.db.execute(
                 """
                 INSERT INTO Task (
@@ -137,6 +151,21 @@ class TaskRepository:
                 ),
             )
 
+    def average_steps(self, user_id: int) -> float:
+        row = self.db.fetchone(
+            """
+            SELECT AVG(cnt) AS avg_steps FROM (
+                SELECT COUNT(*) AS cnt
+                FROM Task t
+                JOIN Workflow w ON w.workflow_id = t.workflow_id
+                WHERE w.user_id = ? AND w.is_active = 1
+                GROUP BY t.workflow_id
+            )
+            """,
+            (user_id,),
+        )
+        return float(row["avg_steps"] or 0) if row else 0.0
+
 
 class AutomationRuleRepository:
     def __init__(self, db: Database) -> None:
@@ -146,7 +175,7 @@ class AutomationRuleRepository:
         rows = self.db.fetchall(
             """
             SELECT * FROM AutomationRule
-            WHERE workflow_id = ?
+            WHERE workflow_id = ? AND is_active = 1
             ORDER BY priority ASC
             """,
             (workflow_id,),
@@ -156,16 +185,18 @@ class AutomationRuleRepository:
     def add(
         self,
         workflow_id: int,
-        name: str,
-        condition: Dict[str, Any] | None = None,
+        rule_name: str,
+        condition: str = "{}",
+        action: str = "run_workflow",
         priority: int = 100,
     ) -> int:
         cur = self.db.execute(
             """
-            INSERT INTO AutomationRule (workflow_id, name, condition_json, priority)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO AutomationRule
+                (workflow_id, rule_name, condition, action, priority, is_active)
+            VALUES (?, ?, ?, ?, ?, 1)
             """,
-            (workflow_id, name, json.dumps(condition or {}), priority),
+            (workflow_id, rule_name, condition, action, priority),
         )
         return int(cur.lastrowid)
 
@@ -177,27 +208,38 @@ class NLPCommandRepository:
     def create(
         self,
         raw_text: str,
-        intent: str,
+        parsed_intent: str,
         entities: Dict[str, Any],
         confidence: float,
         source: str = "text",
         user_id: Optional[int] = None,
+        task_id: Optional[int] = None,
     ) -> int:
         cur = self.db.execute(
             """
             INSERT INTO NLP_Command (
-                user_id, raw_text, intent, entities_json, confidence, source
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                user_id, task_id, raw_text, parsed_intent, entities_json, confidence, source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, raw_text, intent, json.dumps(entities), confidence, source),
+            (user_id, task_id, raw_text, parsed_intent, json.dumps(entities), confidence, source),
         )
         return int(cur.lastrowid)
 
-    def recent(self, limit: int = 20) -> List[Dict[str, Any]]:
-        rows = self.db.fetchall(
-            "SELECT * FROM NLP_Command ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        )
+    def recent(self, user_id: Optional[int] = None, limit: int = 20) -> List[Dict[str, Any]]:
+        if user_id is None:
+            rows = self.db.fetchall(
+                "SELECT * FROM NLP_Command ORDER BY executed_at DESC LIMIT ?",
+                (limit,),
+            )
+        else:
+            rows = self.db.fetchall(
+                """
+                SELECT * FROM NLP_Command
+                WHERE user_id = ?
+                ORDER BY executed_at DESC LIMIT ?
+                """,
+                (user_id, limit),
+            )
         return [dict(r) for r in rows]
 
 
@@ -212,50 +254,96 @@ class ExecutionLogRepository:
         error_message: str = "",
         details: Optional[Dict[str, Any]] = None,
         user_id: Optional[int] = None,
-        workflow_id: Optional[int] = None,
         command_id: Optional[int] = None,
+        action_id: str = "",
     ) -> int:
         cur = self.db.execute(
             """
             INSERT INTO Execution_log (
-                user_id, workflow_id, command_id, status,
-                duration_ms, error_message, details_json
+                user_id, command_id, status, duration_ms,
+                error_message, action_id, details_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
-                workflow_id,
                 command_id,
                 status,
                 duration_ms,
                 error_message,
+                action_id,
                 json.dumps(details or {}),
             ),
         )
         return int(cur.lastrowid)
 
-    def recent(self, limit: int = 50) -> List[Dict[str, Any]]:
-        rows = self.db.fetchall(
-            "SELECT * FROM Execution_log ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        )
+    def recent(self, user_id: Optional[int] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        if user_id is None:
+            rows = self.db.fetchall(
+                "SELECT * FROM Execution_log ORDER BY started_at DESC LIMIT ?",
+                (limit,),
+            )
+        else:
+            rows = self.db.fetchall(
+                """
+                SELECT * FROM Execution_log
+                WHERE user_id = ?
+                ORDER BY started_at DESC LIMIT ?
+                """,
+                (user_id, limit),
+            )
         return [dict(r) for r in rows]
+
+    def stats(self, user_id: int) -> Dict[str, Any]:
+        total = self.db.fetchone(
+            "SELECT COUNT(*) AS c FROM Execution_log WHERE user_id = ?",
+            (user_id,),
+        )
+        success = self.db.fetchone(
+            "SELECT COUNT(*) AS c FROM Execution_log WHERE user_id = ? AND status = 'Success'",
+            (user_id,),
+        )
+        today = self.db.fetchone(
+            """
+            SELECT COUNT(*) AS c FROM Execution_log
+            WHERE user_id = ? AND date(started_at) = date('now')
+            """,
+            (user_id,),
+        )
+        total_c = int(total["c"]) if total else 0
+        success_c = int(success["c"]) if success else 0
+        rate = (success_c / total_c * 100.0) if total_c else 100.0
+        return {
+            "total": total_c,
+            "success": success_c,
+            "success_rate": round(rate, 1),
+            "today": int(today["c"]) if today else 0,
+        }
 
 
 class ScreenCaptureRepository:
     def __init__(self, db: Database) -> None:
         self.db = db
 
-    def create(self, file_path: str, log_id: Optional[int] = None, label: str = "") -> int:
+    def create(
+        self,
+        file_path: str,
+        log_id: Optional[int] = None,
+        width: int = 0,
+        height: int = 0,
+        element_found: str = "",
+    ) -> int:
         cur = self.db.execute(
-            "INSERT INTO Screen_capture (log_id, file_path, label) VALUES (?, ?, ?)",
-            (log_id, file_path, label),
+            """
+            INSERT INTO Screen_capture (log_id, file_path, width, height, element_found)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (log_id, file_path, width, height, element_found),
         )
         return int(cur.lastrowid)
 
     def list_for_log(self, log_id: int) -> List[Dict[str, Any]]:
         rows = self.db.fetchall(
-            "SELECT * FROM Screen_capture WHERE log_id = ? ORDER BY created_at DESC",
+            "SELECT * FROM Screen_capture WHERE log_id = ? ORDER BY captured_at DESC",
             (log_id,),
         )
         return [dict(r) for r in rows]

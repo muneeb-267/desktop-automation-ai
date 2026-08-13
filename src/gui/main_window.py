@@ -1,4 +1,4 @@
-"""Main dashboard window."""
+"""Main shell with sidebar navigation matching app flow wireframe."""
 
 from __future__ import annotations
 
@@ -12,19 +12,25 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QSplitter,
-    QStatusBar,
-    QTabWidget,
+    QStackedWidget,
+    QLineEdit,
     QMessageBox,
+    QFrame,
 )
 
-from src.db.repositories import UserConfRepository
-from src.gui.components.controls_widget import ControlsWidget
-from src.gui.components.feed_widget import FeedWidget
-from src.gui.components.logs_widget import LogsWidget
-from src.gui.components.workflows_widget import WorkflowsWidget
-from src.gui.styles import LIGHT_THEME
-from src.gui.workers import CaptureWorker, CommandWorker, SpeechWorker, WorkflowWorker
+from src.db.repositories import (
+    ExecutionLogRepository,
+    NLPCommandRepository,
+    TaskRepository,
+    UserConfRepository,
+)
+from src.gui.pages.dashboard_page import DashboardPage
+from src.gui.pages.history_page import HistoryPage
+from src.gui.pages.settings_page import SettingsPage
+from src.gui.pages.voice_page import VoiceCommandPage
+from src.gui.pages.workflows_page import WorkflowsPage
+from src.gui.styles import APP_STYLE
+from src.gui.workers import CommandWorker, SpeechWorker, WorkflowWorker
 
 
 class MainWindow(QMainWindow):
@@ -38,204 +44,232 @@ class MainWindow(QMainWindow):
         self.workflows = app_context["workflows"]
         self.user: Dict[str, Any] = app_context["user"]
         self.conf_repo = UserConfRepository(self.db)
+        self.log_repo = ExecutionLogRepository(self.db)
+        self.nlp_repo = NLPCommandRepository(self.db)
+        self.task_repo = TaskRepository(self.db)
 
-        app_name = self.config.get("app", {}).get("name", "Desktop Automation Using AI")
+        app_name = self.config.get("app", {}).get("name", "Automate AI")
         self.setWindowTitle(app_name)
-        self.setMinimumSize(QSize(1100, 700))
+        self.setMinimumSize(QSize(1180, 720))
         ui = self.config.get("ui", {})
-        self.resize(int(ui.get("window_width", 1280)), int(ui.get("window_height", 800)))
-        self.setStyleSheet(LIGHT_THEME)
+        self.resize(int(ui.get("window_width", 1360)), int(ui.get("window_height", 860)))
+        self.setStyleSheet(APP_STYLE)
 
         self._command_worker: Optional[CommandWorker] = None
         self._workflow_worker: Optional[WorkflowWorker] = None
         self._speech_worker: Optional[SpeechWorker] = None
-        self._capture_worker: Optional[CaptureWorker] = None
-        self._badge_anim: Optional[QPropertyAnimation] = None
+        self._nav_buttons: Dict[str, QPushButton] = {}
 
         self._build_ui()
         self._wire()
-        self._load_user_conf()
-        self._refresh_workflows()
-        self.set_status("idle")
-        self.logs.append(
-            f"Signed in as {self.user.get('display_name')} ({self.user.get('username')})",
-            "success",
-        )
-        self.logs.append(
-            "Dry-run is ON by default. Uncheck it only when you want real mouse/keyboard control.",
-            "warn",
-        )
+        self._load_settings()
+        self.refresh_all()
+        self._show_page("dashboard")
 
     def _build_ui(self) -> None:
         central = QWidget()
         self.setCentralWidget(central)
-        root = QVBoxLayout(central)
+        root = QHBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
-        root.addWidget(self._build_header())
 
-        body = QWidget()
-        body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(12, 12, 12, 12)
-        body_layout.setSpacing(8)
+        # Sidebar
+        side = QFrame()
+        side.setObjectName("sideBar")
+        side.setFixedWidth(230)
+        sl = QVBoxLayout(side)
+        sl.setContentsMargins(16, 18, 16, 16)
+        sl.setSpacing(6)
 
-        self.tabs = QTabWidget()
-        dashboard = QWidget()
-        dash_layout = QVBoxLayout(dashboard)
-        dash_layout.setContentsMargins(8, 8, 8, 8)
+        brand_row = QHBoxLayout()
+        mark = QLabel("⌁")
+        mark.setStyleSheet(
+            "background:#111827;color:white;border-radius:7px;padding:4px 8px;font-weight:800;"
+        )
+        brand = QLabel(self.config.get("app", {}).get("name", "Automate AI"))
+        brand.setObjectName("sideBrand")
+        brand_row.addWidget(mark)
+        brand_row.addWidget(brand)
+        brand_row.addStretch()
+        sl.addLayout(brand_row)
+        sl.addSpacing(18)
 
-        self.main_split = QSplitter(Qt.Horizontal)
-        self.feed = FeedWidget()
-        self.controls = ControlsWidget()
-        self.main_split.addWidget(self.feed)
-        self.main_split.addWidget(self.controls)
-        self.main_split.setStretchFactor(0, 6)
-        self.main_split.setStretchFactor(1, 4)
-        self.main_split.setSizes([720, 480])
+        for key, label in (
+            ("dashboard", "Dashboard"),
+            ("voice", "Voice Command"),
+            ("history", "Execution History"),
+            ("workflows", "Workflow Management"),
+            ("settings", "Settings"),
+        ):
+            btn = QPushButton(label)
+            btn.setObjectName("btnNav")
+            btn.clicked.connect(lambda _=False, k=key: self._show_page(k))
+            self._nav_buttons[key] = btn
+            sl.addWidget(btn)
 
-        self.vert_split = QSplitter(Qt.Vertical)
-        self.vert_split.addWidget(self.main_split)
-        self.logs = LogsWidget()
-        self.vert_split.addWidget(self.logs)
-        self.vert_split.setStretchFactor(0, 7)
-        self.vert_split.setStretchFactor(1, 3)
-        self.vert_split.setSizes([560, 220])
+        sl.addStretch()
+        ready = QLabel("● SYSTEM_READY")
+        ready.setObjectName("statusChip")
+        sl.addWidget(ready)
+        signout = QPushButton("Sign Out")
+        signout.setObjectName("btnSecondary")
+        signout.clicked.connect(self.close)
+        sl.addWidget(signout)
 
-        dash_layout.addWidget(self.vert_split)
-        self.workflows_widget = WorkflowsWidget()
-        self.tabs.addTab(dashboard, "Dashboard")
-        self.tabs.addTab(self.workflows_widget, "Workflows")
-        body_layout.addWidget(self.tabs)
-        root.addWidget(body, stretch=1)
+        # Main column
+        main = QVBoxLayout()
+        main.setContentsMargins(0, 0, 0, 0)
+        main.setSpacing(0)
 
-        status = QStatusBar()
-        status.showMessage("Ready — type a command or use the microphone")
-        self.setStatusBar(status)
+        top = QFrame()
+        top.setObjectName("topBar")
+        tl = QHBoxLayout(top)
+        tl.setContentsMargins(20, 12, 20, 12)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search commands or logs...")
+        self.search.returnPressed.connect(self._search)
+        user_lbl = QLabel(self.user.get("username", "user"))
+        user_lbl.setStyleSheet(
+            "background:#e5e7eb;border-radius:14px;padding:6px 10px;font-weight:700;"
+        )
+        tl.addWidget(self.search, 1)
+        tl.addWidget(QLabel("🔔"))
+        tl.addWidget(user_lbl)
 
-    def _build_header(self) -> QWidget:
-        bar = QWidget()
-        bar.setObjectName("headerBar")
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(16, 10, 16, 10)
-        layout.setSpacing(12)
+        self.stack = QStackedWidget()
+        self.page_dashboard = DashboardPage()
+        self.page_voice = VoiceCommandPage()
+        self.page_history = HistoryPage()
+        self.page_workflows = WorkflowsPage()
+        self.page_settings = SettingsPage()
+        self.stack.addWidget(self.page_dashboard)
+        self.stack.addWidget(self.page_voice)
+        self.stack.addWidget(self.page_history)
+        self.stack.addWidget(self.page_workflows)
+        self.stack.addWidget(self.page_settings)
 
-        app_name = self.config.get("app", {}).get("name", "Desktop Automation Using AI")
-        title = QLabel(app_name)
-        title.setObjectName("appTitle")
-        group = QLabel(self.config.get("app", {}).get("group_id", "S26CS089"))
-        group.setObjectName("appSubtitle")
+        main.addWidget(top)
+        main.addWidget(self.stack, 1)
 
-        self.status_badge = QLabel("● Idle")
-        self.status_badge.setObjectName("statusBadge")
-        self.status_badge.setProperty("status", "idle")
-        self.status_badge.setAlignment(Qt.AlignCenter)
-
-        self.btn_about = QPushButton("About")
-        self.btn_about.setObjectName("btnQuick")
-        self.btn_about.clicked.connect(self._show_about)
-
-        layout.addWidget(title)
-        layout.addWidget(group)
-        layout.addSpacing(8)
-        layout.addWidget(self.status_badge)
-        layout.addStretch()
-        layout.addWidget(QLabel(self.user.get("display_name", "")))
-        layout.addWidget(self.btn_about)
-        return bar
+        root.addWidget(side)
+        root.addLayout(main, 1)
 
     def _wire(self) -> None:
-        self.controls.start_requested.connect(self._run_command)
-        self.controls.stop_requested.connect(self._stop_all)
-        self.controls.mic_requested.connect(self._listen)
-        self.controls.capture_requested.connect(self._capture)
-        self.controls.settings_changed.connect(self._save_settings)
-
-        self.workflows_widget.refresh_requested.connect(self._refresh_workflows)
-        self.workflows_widget.replay_requested.connect(self._replay_workflow)
-        self.workflows_widget.delete_requested.connect(self._delete_workflow)
-        self.workflows_widget.rename_requested.connect(self._rename_workflow)
-        self.workflows_widget.save_from_history_requested.connect(self._save_workflow_from_history)
-
-    def _load_user_conf(self) -> None:
-        conf = self.conf_repo.get_for_user(self.user["user_id"])
-        if conf:
-            self.controls.apply_user_conf(conf)
-            self.pipeline.apply_user_settings(self.user["user_id"])
-
-    def _save_settings(self, settings: dict) -> None:
-        self.conf_repo.update(
-            self.user["user_id"],
-            dry_run=settings["dry_run"],
-            failsafe=settings["failsafe"],
-            pause_seconds=settings["pause_seconds"],
+        self.page_dashboard.open_voice.connect(lambda: self._show_page("voice"))
+        self.page_dashboard.open_history.connect(lambda: self._show_page("history"))
+        self.page_dashboard.open_workflows.connect(lambda: self._show_page("workflows"))
+        self.page_dashboard.run_diagnostics.connect(
+            lambda: self._run_command("Wait 1 seconds")
         )
-        self.pipeline.automation.set_dry_run(settings["dry_run"])
-        self.pipeline.automation.failsafe = settings["failsafe"]
-        self.pipeline.automation.pause_seconds = settings["pause_seconds"]
-        mode = "DRY-RUN" if settings["dry_run"] else "LIVE"
-        self.logs.append(f"Settings updated — mode={mode}", "info")
-        self.statusBar().showMessage(f"Mode: {mode}")
 
-    def set_status(self, status: str) -> None:
-        labels = {
-            "idle": "● Idle",
-            "running": "● Running",
-            "error": "● Error",
-            "success": "● Success",
+        self.page_voice.execute_requested.connect(self._run_command)
+        self.page_voice.mic_requested.connect(self._listen)
+        self.page_voice.rerun_requested.connect(self._run_command)
+        self.page_voice.sensitivity_changed.connect(self._set_sensitivity)
+
+        self.page_workflows.run_requested.connect(self._run_workflow)
+        self.page_workflows.create_requested.connect(self._create_workflow)
+        self.page_workflows.delete_requested.connect(self._delete_workflow)
+        self.page_workflows.refresh_requested.connect(self.refresh_all)
+
+        self.page_settings.save_requested.connect(self._save_settings)
+
+    def _show_page(self, key: str) -> None:
+        mapping = {
+            "dashboard": 0,
+            "voice": 1,
+            "history": 2,
+            "workflows": 3,
+            "settings": 4,
         }
-        self.status_badge.setText(labels.get(status, "● Idle"))
-        self.status_badge.setProperty("status", status)
-        self.status_badge.style().unpolish(self.status_badge)
-        self.status_badge.style().polish(self.status_badge)
-        # Subtle fade-in presence for status changes
-        self._badge_anim = QPropertyAnimation(self.status_badge, b"windowOpacity")
-        self._badge_anim.setDuration(220)
-        self._badge_anim.setStartValue(0.45)
-        self._badge_anim.setEndValue(1.0)
-        self._badge_anim.setEasingCurve(QEasingCurve.OutCubic)
-        self._badge_anim.start()
+        self.stack.setCurrentIndex(mapping.get(key, 0))
+        for k, btn in self._nav_buttons.items():
+            btn.setProperty("active", "true" if k == key else "false")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+        self.refresh_all()
+
+    def _load_settings(self) -> None:
+        conf = self.conf_repo.get_map(self.user["user_id"])
+        self.page_settings.apply_conf(conf)
+        self.pipeline.apply_user_settings(self.user["user_id"])
+        sens = float(conf.get("voice_sensitivity", conf.get("mic_sensitivity", 0.7)))
+        self.page_voice.sensitivity.setValue(int(sens * 100))
+
+    def _save_settings(self, values: dict) -> None:
+        self.conf_repo.update_many(self.user["user_id"], values)
+        self.pipeline.apply_user_settings(self.user["user_id"])
+        QMessageBox.information(self, "Settings", "Settings applied.")
+        self._show_page("dashboard")
+
+    def _set_sensitivity(self, value: float) -> None:
+        self.conf_repo.set(self.user["user_id"], "voice_sensitivity", f"{value:.2f}")
+        self.conf_repo.set(self.user["user_id"], "mic_sensitivity", f"{value:.2f}")
+        self.speech.mic_sensitivity = value
+
+    def refresh_all(self) -> None:
+        uid = self.user["user_id"]
+        stats = self.log_repo.stats(uid)
+        conf = self.conf_repo.get_map(uid)
+        dry = str(conf.get("dry_run", "1")) in ("1", "true", "True")
+        logs = self.log_repo.recent(user_id=uid, limit=40)
+        self.page_dashboard.update_stats(stats, dry_run=dry)
+        self.page_dashboard.update_activity(logs)
+        self.page_history.update_logs(logs)
+
+        commands = self.nlp_repo.recent(user_id=uid, limit=20)
+        status_map = {}
+        for log in logs:
+            cid = log.get("command_id")
+            if cid:
+                status_map[cid] = log.get("status", "")
+        self.page_voice.update_recent(commands, status_map)
+
+        wfs = self.workflows.list_workflows(uid)
+        avg = self.task_repo.average_steps(uid)
+        self.page_workflows.set_workflows(
+            wfs, today_executions=stats.get("today", 0), avg_steps=avg
+        )
+        live = [
+            f"{l.get('started_at', '')} · {l.get('status')} · {l.get('action_id') or 'command'}"
+            for l in logs[:5]
+        ]
+        self.page_workflows.set_live_logs(live)
+
+    def _search(self) -> None:
+        q = self.search.text().strip()
+        if q:
+            self._show_page("voice")
+            self.page_voice.set_command_text(q)
+
+    def _busy(self) -> bool:
+        for worker in (self._command_worker, self._workflow_worker, self._speech_worker):
+            if worker is not None and worker.isRunning():
+                return True
+        return False
 
     def _run_command(self, text: str) -> None:
-        if self._busy():
+        if not text.strip() or self._busy():
             return
-        self.controls.set_running(True)
-        self.set_status("running")
-        self.logs.append(f"Command: {text}", "info")
+        self._show_page("voice")
+        self.page_voice.set_command_text(text)
+        self.page_voice.set_status_message("● Running…")
         self.pipeline.automation.clear_history()
         self._command_worker = CommandWorker(
             self.pipeline, text, self.user["user_id"], source="text", parent=self
         )
-        self._command_worker.status.connect(lambda m: self.controls.set_status(m))
-        self._command_worker.status.connect(lambda m: self.logs.append(m, "info"))
-        self._command_worker.frame_ready.connect(self.feed.show_frame)
-        self._command_worker.failed.connect(self._on_fail)
+        self._command_worker.status.connect(self.page_voice.set_status_message)
+        self._command_worker.failed.connect(lambda m: self.page_voice.set_status_message(f"✗ {m}"))
         self._command_worker.finished_ok.connect(self._on_command_done)
         self._command_worker.start()
 
     def _on_command_done(self, result: dict) -> None:
-        self.controls.set_running(False)
         if result.get("ok"):
-            self.set_status("success")
             mode = "dry-run" if result.get("dry_run") else "live"
-            self.logs.append(f"Completed successfully ({mode})", "success")
+            self.page_voice.set_status_message(f"✓ Completed successfully ({mode})")
         else:
-            self.set_status("error")
-            self.logs.append(result.get("error") or "Failed", "error")
-        self.statusBar().showMessage("Ready")
-
-    def _on_fail(self, message: str) -> None:
-        self.controls.set_running(False)
-        self.controls.set_listening(False)
-        self.set_status("error")
-        self.logs.append(message, "error")
-
-    def _stop_all(self) -> None:
-        if self._command_worker and self._command_worker.isRunning():
-            self._command_worker.stop()
-            self.logs.append("Stop requested…", "warn")
-        if self._workflow_worker and self._workflow_worker.isRunning():
-            self._workflow_worker.stop()
-            self.logs.append("Stop requested for workflow…", "warn")
+            self.page_voice.set_status_message(f"✗ {result.get('error') or 'Failed'}")
+        self.refresh_all()
 
     def _listen(self) -> None:
         if self._busy():
@@ -244,125 +278,67 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Microphone",
-                "SpeechRecognition is not available. Type your command instead.",
+                "SpeechRecognition/PyAudio Microphone API is not available. Type a command instead.",
             )
             return
-        self.controls.set_listening(True)
-        self.logs.append("Listening for voice command…", "info")
+        self.page_voice.set_listening(True)
         self._speech_worker = SpeechWorker(self.speech, parent=self)
-        self._speech_worker.status.connect(lambda m: self.controls.set_status(m))
         self._speech_worker.failed.connect(self._on_speech_fail)
         self._speech_worker.transcribed.connect(self._on_transcribed)
         self._speech_worker.start()
 
     def _on_speech_fail(self, message: str) -> None:
-        self.controls.set_listening(False)
-        self.logs.append(message, "error")
+        self.page_voice.set_listening(False)
+        self.page_voice.set_status_message(f"✗ {message}")
         QMessageBox.warning(self, "Voice input", message)
 
     def _on_transcribed(self, text: str) -> None:
-        self.controls.set_listening(False)
-        self.controls.set_command_text(text)
-        self.logs.append(f"Heard: {text}", "success")
+        self.page_voice.set_listening(False)
+        self.page_voice.set_command_text(text)
         self._run_command(text)
 
-    def _capture(self) -> None:
-        if self._capture_worker and self._capture_worker.isRunning():
-            return
-        self.logs.append("Capturing screen…", "info")
-        self._capture_worker = CaptureWorker(self.pipeline, parent=self)
-        self._capture_worker.frame_ready.connect(self.feed.show_frame)
-        self._capture_worker.frame_ready.connect(
-            lambda *_: self.logs.append("Capture ready", "success")
-        )
-        self._capture_worker.failed.connect(lambda m: self.logs.append(m, "error"))
-        self._capture_worker.start()
-
-    def _refresh_workflows(self) -> None:
-        items = self.workflows.list_workflows(self.user["user_id"])
-        self.workflows_widget.set_workflows(items)
-
-    def _replay_workflow(self, workflow_id: int) -> None:
+    def _run_workflow(self, workflow_id: int) -> None:
         if self._busy():
             return
-        self.controls.set_running(True)
-        self.set_status("running")
-        self.logs.append(f"Replaying workflow #{workflow_id}", "info")
         self._workflow_worker = WorkflowWorker(
             self.pipeline, workflow_id, self.user["user_id"], parent=self
         )
-        self._workflow_worker.status.connect(lambda m: self.logs.append(m, "info"))
-        self._workflow_worker.failed.connect(self._on_fail)
-        self._workflow_worker.finished_ok.connect(self._on_workflow_done)
+        self._workflow_worker.failed.connect(
+            lambda m: QMessageBox.warning(self, "Workflow", m)
+        )
+        self._workflow_worker.finished_ok.connect(lambda _r: self.refresh_all())
         self._workflow_worker.start()
 
-    def _on_workflow_done(self, result: dict) -> None:
-        self.controls.set_running(False)
-        if result.get("ok"):
-            self.set_status("success")
-            self.logs.append("Workflow finished", "success")
-        else:
-            self.set_status("error")
-            self.logs.append(result.get("error") or "Workflow failed", "error")
-
-    def _delete_workflow(self, workflow_id: int) -> None:
-        self.workflows.delete_workflow(workflow_id)
-        self.logs.append(f"Deleted workflow #{workflow_id}", "warn")
-        self._refresh_workflows()
-
-    def _rename_workflow(self, workflow_id: int, name: str) -> None:
-        try:
-            self.workflows.rename_workflow(workflow_id, name)
-            self.logs.append(f"Renamed workflow to '{name}'", "success")
-            self._refresh_workflows()
-        except Exception as exc:
-            QMessageBox.warning(self, "Rename failed", str(exc))
-
-    def _save_workflow_from_history(self, name: str, description: str) -> None:
+    def _create_workflow(self, name: str, description: str) -> None:
         history = self.pipeline.automation.history
         tasks = self.workflows.tasks_from_action_history(history)
         if not tasks:
-            QMessageBox.information(
-                self,
-                "Nothing to save",
-                "Run a command first, then save the actions as a workflow.",
-            )
-            return
+            tasks = [
+                {
+                    "intent": "wait",
+                    "target_app": "",
+                    "target_element": "",
+                    "input_value": "1",
+                    "params": {"seconds": 1},
+                }
+            ]
         try:
-            wid = self.workflows.create_workflow(
+            self.workflows.create_workflow(
                 self.user["user_id"], name, description, tasks=tasks
             )
-            self.logs.append(f"Saved workflow '{name}' (#{wid}) with {len(tasks)} steps", "success")
-            self._refresh_workflows()
+            self.refresh_all()
         except Exception as exc:
-            QMessageBox.warning(self, "Save failed", str(exc))
+            QMessageBox.warning(self, "Create failed", str(exc))
 
-    def _busy(self) -> bool:
-        for worker in (self._command_worker, self._workflow_worker, self._speech_worker):
-            if worker is not None and worker.isRunning():
-                return True
-        return False
-
-    def _show_about(self) -> None:
-        app = self.config.get("app", {})
-        QMessageBox.about(
-            self,
-            "About",
-            f"<b>{app.get('name')}</b><br>"
-            f"Group ID: {app.get('group_id')}<br>"
-            f"Version: {app.get('version')}<br><br>"
-            "No-code AI desktop assistant using NLP, Computer Vision, "
-            "and local automation.<br>"
-            "Product Owner: Mam Saadia Aslam",
-        )
+    def _delete_workflow(self, workflow_id: int) -> None:
+        if QMessageBox.question(self, "Delete", "Delete this workflow?") != QMessageBox.Yes:
+            return
+        self.workflows.delete_workflow(workflow_id)
+        self.refresh_all()
 
     def shutdown(self) -> None:
-        self._stop_all()
-        for worker in (
-            self._command_worker,
-            self._workflow_worker,
-            self._speech_worker,
-            self._capture_worker,
-        ):
+        for worker in (self._command_worker, self._workflow_worker, self._speech_worker):
             if worker is not None and worker.isRunning():
-                worker.wait(1500)
+                if hasattr(worker, "stop"):
+                    worker.stop()
+                worker.wait(1200)

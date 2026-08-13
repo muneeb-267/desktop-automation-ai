@@ -1,9 +1,9 @@
-# Desktop Automation Using AI
+# Automate AI — AI Desktop Automation
 
 **Group ID:** S26CS089  
 **Product Owner:** Mam Saadia Aslam
 
-A no-code, AI-driven desktop assistant that runs **locally on your computer**. Speak or type plain English (for example: *Open Chrome and search weather*). The app understands the command, finds UI elements on screen, performs mouse/keyboard actions, saves multi-step workflows, and keeps full logs in SQLite.
+A no-code, AI-driven desktop assistant (**Automate AI**) that runs **locally on your computer**. Speak or type plain English (for example: *Open Chrome and search weather*). The app understands the command, finds UI elements on screen, performs mouse/keyboard actions, saves multi-step workflows, and keeps full logs in SQLite.
 
 ---
 
@@ -80,6 +80,17 @@ sudo apt-get install -y tesseract-ocr libportaudio2 portaudio19-dev python3-tk s
 3. Install a PyAudio wheel that matches your Python version if `pip install PyAudio` fails.
 
 ---
+
+## UI screens (from project wireframes)
+
+- Login / Landing (split brand + sign-in)
+- System Dashboard
+- Voice Command
+- Execution History
+- Workflow Management
+- Settings
+
+Navigation flow: Login → Dashboard → Voice / History / Workflows / Settings → Sign Out
 
 ## How to use
 
