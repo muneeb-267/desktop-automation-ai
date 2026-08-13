@@ -20,10 +20,13 @@ ui:
   min_height: 720
 
 speech:
-  ambient_seconds: 0.4
-  phrase_time_limit: 8
-  energy_threshold: 300
-  mic_sensitivity: 0.7
+  ambient_seconds: 0.25
+  phrase_time_limit: 6
+  listen_timeout: 6
+  energy_threshold: 180
+  mic_sensitivity: 0.8
+  pause_threshold: 0.55
+  non_speaking_duration: 0.35
 
 nlp:
   spacy_model: "en_core_web_sm"
@@ -31,16 +34,18 @@ nlp:
 
 vision:
   ocr_lang: "eng"
-  template_threshold: 0.78
+  template_threshold: 0.72
   capture_monitor: 0
 
 automation:
-  dry_run: true
+  # Live automation ON by default — uncheck in Settings for safe dry-run
+  dry_run: false
   failsafe: true
-  pause_seconds: 0.35
-  type_interval: 0.04
-  move_duration: 0.25
-  post_action_delay: 0.4
+  pause_seconds: 0.12
+  type_interval: 0.02
+  move_duration: 0.12
+  post_action_delay: 0.2
+  app_launch_wait: 1.2
 
 auth:
   default_username: "demo"

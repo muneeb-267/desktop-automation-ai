@@ -49,6 +49,8 @@ _INTENT_KEYWORDS: Dict[str, Tuple[str, float]] = {
 _APP_ALIASES = {
     "chrome": "chrome",
     "google chrome": "chrome",
+    "google": "google",
+    "browser": "chrome",
     "firefox": "firefox",
     "edge": "msedge",
     "notepad": "notepad",
@@ -61,6 +63,8 @@ _APP_ALIASES = {
     "vscode": "code",
     "vs code": "code",
     "code": "code",
+    "gmail": "gmail",
+    "youtube": "youtube",
 }
 
 _KEY_NAMES = {
@@ -238,10 +242,12 @@ class NLPEngine:
             return "scroll", 0.9
         if any(w in lemmas for w in ("wait", "pause", "sleep")):
             return "wait", 0.93
-        if any(w in lemmas for w in ("search", "google")):
-            return "search_web", 0.9
+        # "open google" / "launch chrome" should open apps, not search
         if any(w in lemmas for w in ("open", "launch", "start")):
             return "open_app", 0.92
+        # "search X" or "google X" (as a verb) => web search
+        if "search" in lemmas or re.search(r"^\s*google\s+\S+", lower):
+            return "search_web", 0.9
         if any(w in lemmas for w in ("click", "tap")):
             return "click_text", 0.88
         if any(w in lemmas for w in ("type", "write", "fill")) or (
@@ -250,7 +256,7 @@ class NLPEngine:
             return "type_text", 0.86
 
         for lemma in lemmas:
-            if lemma in _INTENT_KEYWORDS:
+            if lemma in _INTENT_KEYWORDS and lemma not in ("google", "open", "start", "launch"):
                 return _INTENT_KEYWORDS[lemma]
         return "unknown", 0.2
 

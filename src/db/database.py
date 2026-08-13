@@ -65,10 +65,11 @@ class Database:
         defaults = {
             "theme": config.get("ui", {}).get("theme", "light"),
             "mic_sensitivity": str(config.get("speech", {}).get("mic_sensitivity", 0.7)),
-            "dry_run": "1" if config.get("automation", {}).get("dry_run", True) else "0",
+            "dry_run": "1" if config.get("automation", {}).get("dry_run", False) else "0",
             "failsafe": "1" if config.get("automation", {}).get("failsafe", True) else "0",
-            "pause_seconds": str(config.get("automation", {}).get("pause_seconds", 0.35)),
-            "voice_sensitivity": "0.7",
+            "pause_seconds": str(config.get("automation", {}).get("pause_seconds", 0.12)),
+            "voice_sensitivity": str(config.get("speech", {}).get("mic_sensitivity", 0.8)),
+            "mic_sensitivity": str(config.get("speech", {}).get("mic_sensitivity", 0.8)),
             "recognition_confidence": "0.85",
         }
         for key, value in defaults.items():
@@ -186,6 +187,27 @@ def get_database(config: Optional[Dict[str, Any]] = None) -> Database:
     db = Database(db_path)
     db.initialize_schema()
     db.seed_defaults(cfg)
+    # Keep demo automation mode in sync with config (live by default)
+    demo = db.fetchone("SELECT user_id FROM User WHERE username = ?", ("demo",))
+    if demo:
+        dry = "1" if cfg.get("automation", {}).get("dry_run", False) else "0"
+        pause = str(cfg.get("automation", {}).get("pause_seconds", 0.12))
+        db.execute(
+            """
+            INSERT INTO User_Conf (conf_key, conf_value, user_id)
+            VALUES ('dry_run', ?, ?)
+            ON CONFLICT(user_id, conf_key) DO UPDATE SET conf_value = excluded.conf_value
+            """,
+            (dry, int(demo["user_id"])),
+        )
+        db.execute(
+            """
+            INSERT INTO User_Conf (conf_key, conf_value, user_id)
+            VALUES ('pause_seconds', ?, ?)
+            ON CONFLICT(user_id, conf_key) DO UPDATE SET conf_value = excluded.conf_value
+            """,
+            (pause, int(demo["user_id"])),
+        )
     _db_singleton = db
     return db
 

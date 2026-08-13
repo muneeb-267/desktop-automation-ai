@@ -46,9 +46,12 @@ class AutomationPipeline:
         conf = self.conf_repo.get_map(user_id)
         if not conf:
             return
-        self.automation.set_dry_run(str(conf.get("dry_run", "1")) in ("1", "true", "True"))
+        self.automation.set_dry_run(str(conf.get("dry_run", "0")) in ("1", "true", "True"))
         self.automation.failsafe = str(conf.get("failsafe", "1")) in ("1", "true", "True")
-        self.automation.pause_seconds = float(conf.get("pause_seconds", 0.35))
+        self.automation.pause_seconds = float(conf.get("pause_seconds", 0.12))
+        if self.automation._pyautogui is not None:
+            self.automation._pyautogui.PAUSE = self.automation.pause_seconds
+            self.automation._pyautogui.FAILSAFE = self.automation.failsafe
 
     def run_text_command(
         self,
@@ -59,8 +62,9 @@ class AutomationPipeline:
         status_cb: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         self._stop_requested = False
+        self._status_cb = status_cb or (lambda _m: None)
         started = time.perf_counter()
-        emit = status_cb or (lambda _m: None)
+        emit = self._status_cb
 
         emit("Parsing command…")
         parsed = self.nlp.parse(text)
@@ -268,22 +272,18 @@ class AutomationPipeline:
 
         if intent == "search_web":
             query = entities.get("query", "")
-            # Open browser then type query in address/search as best-effort
-            result["automation_open"] = self.automation.open_app("chrome")
-            self.automation.wait(1.0)
-            # Ctrl+L focus address bar, type search, enter
-            result["automation_hotkey"] = self.automation.press("ctrl+l")
-            result["automation_type"] = self.automation.type_text(query)
-            result["automation_enter"] = self.automation.press("enter")
+            # Real Google search via browser URL (fast + reliable)
+            result["automation"] = self.automation.search_google(query)
             return result
 
         if intent == "click_text":
             element = entities.get("element", "")
-            # Direct coordinates from recorded task
             if entities.get("x") is not None and entities.get("y") is not None:
                 x, y = int(entities["x"]), int(entities["y"])
                 result["automation"] = self.automation.click(x, y)
                 return result
+            emit = getattr(self, "_status_cb", None) or (lambda _m: None)
+            emit(f"Looking for “{element}” on screen…")
             frame = self.vision.capture_screen()
             detection = self.vision.locate(element, frame=frame)
             result["detection"] = {
@@ -298,13 +298,25 @@ class AutomationPipeline:
             path = self.vision.save_capture(frame, label=f"click_{element}", boxes=detection.boxes)
             result["capture_path"] = path
             if not detection.found:
-                # In dry-run, still succeed with a synthetic center for demos
-                if self.automation.dry_run:
-                    h, w = frame.shape[:2]
-                    result["automation"] = self.automation.click(w // 2, h // 2)
-                    result["note"] = "Element not found; dry-run used screen center"
-                    return result
-                raise RuntimeError(f"Could not find on-screen element: {element}")
+                # Retry once after a short wait (UI may still be loading)
+                self.automation.wait(0.6)
+                frame = self.vision.capture_screen()
+                detection = self.vision.locate(element, frame=frame)
+                result["detection_retry"] = {
+                    "found": detection.found,
+                    "x": detection.x,
+                    "y": detection.y,
+                    "method": detection.method,
+                    "confidence": detection.confidence,
+                }
+                result["boxes"] = detection.boxes
+                if not detection.found:
+                    if self.automation.dry_run:
+                        h, w = frame.shape[:2]
+                        result["automation"] = self.automation.click(w // 2, h // 2)
+                        result["note"] = "Element not found; dry-run used screen center"
+                        return result
+                    raise RuntimeError(f"Could not find on-screen element: {element}")
             result["automation"] = self.automation.click(detection.x, detection.y)
             return result
 

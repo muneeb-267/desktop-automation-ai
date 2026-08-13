@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from PyQt5.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve
+from PyQt5.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve, QTimer
 from PyQt5.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QFrame,
+    QApplication,
 )
 
 from src.db.repositories import (
@@ -59,12 +60,16 @@ class MainWindow(QMainWindow):
         self._workflow_worker: Optional[WorkflowWorker] = None
         self._speech_worker: Optional[SpeechWorker] = None
         self._nav_buttons: Dict[str, QPushButton] = {}
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.timeout.connect(self._refresh_all_now)
+        self._current_page = "dashboard"
 
         self._build_ui()
         self._wire()
         self._load_settings()
-        self.refresh_all()
         self._show_page("dashboard")
+        self.schedule_refresh(immediate=True)
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -182,59 +187,85 @@ class MainWindow(QMainWindow):
             "workflows": 3,
             "settings": 4,
         }
+        self._current_page = key
         self.stack.setCurrentIndex(mapping.get(key, 0))
         for k, btn in self._nav_buttons.items():
             btn.setProperty("active", "true" if k == key else "false")
             btn.style().unpolish(btn)
             btn.style().polish(btn)
-        self.refresh_all()
+        # Light refresh only for the visible page (keeps UI smooth)
+        self.schedule_refresh()
 
     def _load_settings(self) -> None:
         conf = self.conf_repo.get_map(self.user["user_id"])
         self.page_settings.apply_conf(conf)
         self.pipeline.apply_user_settings(self.user["user_id"])
-        sens = float(conf.get("voice_sensitivity", conf.get("mic_sensitivity", 0.7)))
+        sens = float(conf.get("voice_sensitivity", conf.get("mic_sensitivity", 0.8)))
+        self.page_voice.sensitivity.blockSignals(True)
         self.page_voice.sensitivity.setValue(int(sens * 100))
+        self.page_voice.sensitivity.blockSignals(False)
+        self.speech.set_sensitivity(sens)
 
     def _save_settings(self, values: dict) -> None:
         self.conf_repo.update_many(self.user["user_id"], values)
         self.pipeline.apply_user_settings(self.user["user_id"])
+        self.speech.set_sensitivity(float(values.get("mic_sensitivity", 0.8)))
         QMessageBox.information(self, "Settings", "Settings applied.")
         self._show_page("dashboard")
 
     def _set_sensitivity(self, value: float) -> None:
         self.conf_repo.set(self.user["user_id"], "voice_sensitivity", f"{value:.2f}")
         self.conf_repo.set(self.user["user_id"], "mic_sensitivity", f"{value:.2f}")
-        self.speech.mic_sensitivity = value
+        self.speech.set_sensitivity(value)
+
+    def schedule_refresh(self, immediate: bool = False) -> None:
+        if immediate:
+            self._refresh_timer.stop()
+            self._refresh_all_now()
+        else:
+            self._refresh_timer.start(120)
 
     def refresh_all(self) -> None:
+        self.schedule_refresh(immediate=True)
+
+    def _refresh_all_now(self) -> None:
         uid = self.user["user_id"]
-        stats = self.log_repo.stats(uid)
         conf = self.conf_repo.get_map(uid)
-        dry = str(conf.get("dry_run", "1")) in ("1", "true", "True")
-        logs = self.log_repo.recent(user_id=uid, limit=40)
-        self.page_dashboard.update_stats(stats, dry_run=dry)
-        self.page_dashboard.update_activity(logs)
-        self.page_history.update_logs(logs)
+        dry = str(conf.get("dry_run", "0")) in ("1", "true", "True")
+        page = self._current_page
 
-        commands = self.nlp_repo.recent(user_id=uid, limit=20)
-        status_map = {}
-        for log in logs:
-            cid = log.get("command_id")
-            if cid:
-                status_map[cid] = log.get("status", "")
-        self.page_voice.update_recent(commands, status_map)
+        if page in ("dashboard", "history", "workflows", "voice"):
+            logs = self.log_repo.recent(user_id=uid, limit=30)
+        else:
+            logs = []
 
-        wfs = self.workflows.list_workflows(uid)
-        avg = self.task_repo.average_steps(uid)
-        self.page_workflows.set_workflows(
-            wfs, today_executions=stats.get("today", 0), avg_steps=avg
-        )
-        live = [
-            f"{l.get('started_at', '')} · {l.get('status')} · {l.get('action_id') or 'command'}"
-            for l in logs[:5]
-        ]
-        self.page_workflows.set_live_logs(live)
+        if page == "dashboard":
+            stats = self.log_repo.stats(uid)
+            self.page_dashboard.update_stats(stats, dry_run=dry)
+            self.page_dashboard.update_activity(logs)
+        elif page == "history":
+            self.page_history.update_logs(logs)
+        elif page == "voice":
+            commands = self.nlp_repo.recent(user_id=uid, limit=12)
+            status_map = {}
+            for log in logs:
+                cid = log.get("command_id")
+                if cid:
+                    status_map[cid] = log.get("status", "")
+            self.page_voice.update_recent(commands, status_map)
+        elif page == "workflows":
+            stats = self.log_repo.stats(uid)
+            wfs = self.workflows.list_workflows(uid)
+            avg = self.task_repo.average_steps(uid)
+            self.page_workflows.set_workflows(
+                wfs, today_executions=stats.get("today", 0), avg_steps=avg
+            )
+            live = [
+                f"{l.get('started_at', '')} · {l.get('status')} · {l.get('action_id') or 'command'}"
+                for l in logs[:5]
+            ]
+            self.page_workflows.set_live_logs(live)
+        QApplication.processEvents()
 
     def _search(self) -> None:
         q = self.search.text().strip()
@@ -248,15 +279,21 @@ class MainWindow(QMainWindow):
                 return True
         return False
 
-    def _run_command(self, text: str) -> None:
+    def _run_command(self, text: str, *, source: str = "text") -> None:
         if not text.strip() or self._busy():
             return
-        self._show_page("voice")
+        if self._current_page != "voice":
+            self._show_page("voice")
         self.page_voice.set_command_text(text)
-        self.page_voice.set_status_message("● Running…")
+        mode = "LIVE" if not self.pipeline.automation.dry_run else "dry-run"
+        self.page_voice.set_status_message(f"● Running ({mode})…")
+        # Get our window out of the way so clicks/typing hit the target app
+        if not self.pipeline.automation.dry_run:
+            self.showMinimized()
+            QApplication.processEvents()
         self.pipeline.automation.clear_history()
         self._command_worker = CommandWorker(
-            self.pipeline, text, self.user["user_id"], source="text", parent=self
+            self.pipeline, text, self.user["user_id"], source=source, parent=self
         )
         self._command_worker.status.connect(self.page_voice.set_status_message)
         self._command_worker.failed.connect(lambda m: self.page_voice.set_status_message(f"✗ {m}"))
@@ -264,12 +301,16 @@ class MainWindow(QMainWindow):
         self._command_worker.start()
 
     def _on_command_done(self, result: dict) -> None:
+        if self.isMinimized():
+            self.showNormal()
+            self.raise_()
+            self.activateWindow()
         if result.get("ok"):
             mode = "dry-run" if result.get("dry_run") else "live"
             self.page_voice.set_status_message(f"✓ Completed successfully ({mode})")
         else:
             self.page_voice.set_status_message(f"✗ {result.get('error') or 'Failed'}")
-        self.refresh_all()
+        self.schedule_refresh()
 
     def _listen(self) -> None:
         if self._busy():
@@ -282,7 +323,9 @@ class MainWindow(QMainWindow):
             )
             return
         self.page_voice.set_listening(True)
+        self.page_voice.set_status_message("● Starting microphone…")
         self._speech_worker = SpeechWorker(self.speech, parent=self)
+        self._speech_worker.status.connect(self.page_voice.set_status_message)
         self._speech_worker.failed.connect(self._on_speech_fail)
         self._speech_worker.transcribed.connect(self._on_transcribed)
         self._speech_worker.start()
@@ -290,12 +333,14 @@ class MainWindow(QMainWindow):
     def _on_speech_fail(self, message: str) -> None:
         self.page_voice.set_listening(False)
         self.page_voice.set_status_message(f"✗ {message}")
-        QMessageBox.warning(self, "Voice input", message)
+        # Soft status only — avoid blocking modal popups during voice use
+        self.statusBar().showMessage(message, 5000) if self.statusBar() else None
 
     def _on_transcribed(self, text: str) -> None:
         self.page_voice.set_listening(False)
         self.page_voice.set_command_text(text)
-        self._run_command(text)
+        self.page_voice.set_status_message(f"Heard: {text}")
+        self._run_command(text, source="voice")
 
     def _run_workflow(self, workflow_id: int) -> None:
         if self._busy():
@@ -303,11 +348,23 @@ class MainWindow(QMainWindow):
         self._workflow_worker = WorkflowWorker(
             self.pipeline, workflow_id, self.user["user_id"], parent=self
         )
-        self._workflow_worker.failed.connect(
-            lambda m: QMessageBox.warning(self, "Workflow", m)
-        )
-        self._workflow_worker.finished_ok.connect(lambda _r: self.refresh_all())
+        self._workflow_worker.failed.connect(self._on_workflow_fail)
+        self._workflow_worker.finished_ok.connect(self._on_workflow_done)
+        if not self.pipeline.automation.dry_run:
+            self.showMinimized()
+            QApplication.processEvents()
         self._workflow_worker.start()
+
+    def _on_workflow_fail(self, message: str) -> None:
+        if self.isMinimized():
+            self.showNormal()
+        QMessageBox.warning(self, "Workflow", message)
+
+    def _on_workflow_done(self, _result: dict) -> None:
+        if self.isMinimized():
+            self.showNormal()
+            self.raise_()
+        self.schedule_refresh()
 
     def _create_workflow(self, name: str, description: str) -> None:
         history = self.pipeline.automation.history

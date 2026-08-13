@@ -10,6 +10,7 @@ mss>=9.0.0
 
 # Automation Engine
 pyautogui>=0.9.54
+pyperclip>=1.8.0
 
 # Speech Recognition (Microphone API + STT)
 SpeechRecognition>=3.10.0

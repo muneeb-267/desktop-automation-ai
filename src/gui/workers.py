@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from PyQt5.QtCore import QThread, pyqtSignal
 
@@ -11,7 +11,6 @@ class CommandWorker(QThread):
     status = pyqtSignal(str)
     finished_ok = pyqtSignal(dict)
     failed = pyqtSignal(str)
-    frame_ready = pyqtSignal(object, list)
 
     def __init__(
         self,
@@ -35,10 +34,6 @@ class CommandWorker(QThread):
                 source=self.source,
                 status_cb=self.status.emit,
             )
-            frame = self.pipeline.last_frame
-            boxes = result.get("boxes") or self.pipeline.last_boxes or []
-            if frame is not None:
-                self.frame_ready.emit(frame, boxes)
             if result.get("ok"):
                 self.finished_ok.emit(result)
             else:
@@ -92,24 +87,7 @@ class SpeechWorker(QThread):
 
     def run(self) -> None:
         try:
-            self.status.emit("Listening…")
-            text = self.speech_service.listen_once()
+            text = self.speech_service.listen_once(status_cb=self.status.emit)
             self.transcribed.emit(text)
-        except Exception as exc:
-            self.failed.emit(str(exc))
-
-
-class CaptureWorker(QThread):
-    frame_ready = pyqtSignal(object, list)
-    failed = pyqtSignal(str)
-
-    def __init__(self, pipeline, parent=None) -> None:
-        super().__init__(parent)
-        self.pipeline = pipeline
-
-    def run(self) -> None:
-        try:
-            preview = self.pipeline.capture_preview()
-            self.frame_ready.emit(preview["frame"], preview.get("boxes") or [])
         except Exception as exc:
             self.failed.emit(str(exc))

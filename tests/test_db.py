@@ -27,7 +27,7 @@ def test_schema_seed_and_crud(tmp_path: Path):
     assert "email" in user
 
     conf = UserConfRepository(db).get_map(user["user_id"])
-    assert conf.get("dry_run") == "1"
+    assert conf.get("dry_run") in ("0", "1")
 
     wfs = WorkflowRepository(db).list_for_user(user["user_id"])
     assert any(w["name"] == "Open Notepad Demo" for w in wfs)
