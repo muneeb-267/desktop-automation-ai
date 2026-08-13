@@ -3,14 +3,24 @@
 **Group ID:** S26CS089  
 **Product Owner:** Mam Saadia Aslam
 
-A no-code desktop assistant that runs **on your own computer**. You type or speak plain English (for example: *Open Chrome and search weather*), and the app:
+A no-code, AI-driven desktop assistant that runs **locally on your computer**. Speak or type plain English (for example: *Open Chrome and search weather*). The app understands the command, finds UI elements on screen, performs mouse/keyboard actions, saves multi-step workflows, and keeps full logs in SQLite.
 
-1. Understands your command (NLP)
-2. Looks at the screen to find buttons/text (Computer Vision + OCR)
-3. Moves the mouse / types for you (Automation)
-4. Saves multi-step workflows and keeps logs in a local database
+---
 
-No cloud account is required for the core app. Everything important is stored locally in SQLite.
+## Technical stack (as specified)
+
+| Layer | Technology | Role in this repo |
+|------|------------|-------------------|
+| Presentation | **PyQt5** | Login + dashboard UI (`src/gui/`) |
+| Speech | **Microphone API + SpeechRecognition + PyAudio** | Voice capture & STT (`src/speech/`) |
+| NLP | **spaCy + NLTK** | Intent classification & entity extraction (`src/nlp/`) |
+| Computer Vision | **OpenCV + Tesseract OCR** | Screen capture, template match, text locate (`src/vision/`) |
+| Automation | **PyAutoGUI** | Mouse, keyboard, scroll, app launch (`src/automation/`) |
+| Data | **SQLite 3** | 8 SDS tables (`src/db/`) |
+
+End-to-end flow is wired in [`src/pipeline.py`](src/pipeline.py) and started from [`main.py`](main.py):
+
+**UI → Speech/Text → NLP → Vision → PyAutoGUI → Logger/SQLite → Dashboard feedback**
 
 ---
 
@@ -18,16 +28,14 @@ No cloud account is required for the core app. Everything important is stored lo
 
 - Windows 10/11 or Linux
 - Python 3.10+ (3.12 recommended)
-- A microphone (only if you want voice commands)
-- Optional for best screen text reading: [Tesseract OCR](https://github.com/tesseract-ocr/tesseract)
+- A real microphone (for voice commands)
+- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) for on-screen text reading
 
 ---
 
-## Quick start (easiest)
+## Quick start
 
-### 1) Open a terminal in this project folder
-
-### 2) Run the setup script (Linux / macOS)
+### Linux / macOS
 
 ```bash
 chmod +x scripts/setup_env.sh
@@ -36,7 +44,7 @@ source .venv/bin/activate
 python main.py
 ```
 
-### 3) Windows (PowerShell)
+### Windows (PowerShell)
 
 ```powershell
 python -m venv .venv
@@ -54,33 +62,32 @@ python main.py
 
 ---
 
-## Extra system installs (recommended)
+## Extra system installs
 
 ### Linux (Ubuntu/Debian)
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y tesseract-ocr libportaudio2 portaudio19-dev
+sudo apt-get install -y tesseract-ocr libportaudio2 portaudio19-dev python3-tk scrot \
+  libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+  libxcb-render-util0 libxcb-xinerama0 libxcb-cursor0
 ```
 
 ### Windows
 
 1. Install Python from python.org (tick “Add Python to PATH”).
-2. Install Tesseract OCR and note its install path.
-3. If needed, set the path in code or PATH environment variable so `tesseract` is found.
-4. For microphone support, `PyAudio` may need a wheel matching your Python version.
+2. Install Tesseract OCR.
+3. Install a PyAudio wheel that matches your Python version if `pip install PyAudio` fails.
 
 ---
 
-## How to use the app
+## How to use
 
 1. Sign in with `demo` / `demo123`.
-2. On the **Dashboard**, type a command and press **Run command**.
-3. Or click **Mic**, speak, and wait for the transcript.
-4. Watch the **Screen recognition** panel and the **Activity log**.
-5. Keep **Dry-run (safe mode)** checked while you practice — the app will plan actions without moving your real mouse.
-6. Uncheck dry-run only when you are ready for live automation.
-7. Open the **Workflows** tab to replay saved macros, rename/delete them, or **Save last actions** after a successful run.
+2. Type a command and press **Run command**, or click **Mic** and speak.
+3. Keep **Dry-run (safe mode)** checked while practicing.
+4. Use the **Workflows** tab to save / replay multi-step macros.
+5. Check the **Activity log** and **Screen recognition** panel for feedback.
 
 ### Example commands
 
@@ -97,23 +104,28 @@ sudo apt-get install -y tesseract-ocr libportaudio2 portaudio19-dev
 ## Project structure
 
 ```
-main.py                 → start the app
-config/default.yaml     → settings
-src/db/                 → SQLite database (8 tables)
-src/nlp/                → understands English commands
-src/speech/             → microphone → text
-src/vision/             → screenshot, OCR, template match
-src/automation/         → mouse/keyboard actions
-src/workflows/          → save / replay macros
-src/logging_audit/      → execution logs + screenshot records
-src/gui/                → PyQt5 windows
-tests/                  → automated tests
-data/                   → local database + captures (created on first run)
+main.py                 → start the PyQt5 app
+config/default.yaml     → theme, mic, vision, automation settings
+requirements.txt        → project stack packages
+scripts/setup_env.sh    → create venv, install deps, seed DB
+src/
+  gui/                  → PyQt5 presentation layer
+  speech/               → Microphone API + Speech-to-Text
+  nlp/                  → spaCy / NLTK intent + entities
+  vision/               → OpenCV + Tesseract
+  automation/           → PyAutoGUI engine
+  workflows/            → multi-step macros
+  logging_audit/        → execution logs + screenshot records
+  db/                   → SQLite schema + repositories
+  pipeline.py           → end-to-end orchestration
+tests/                  → unit/integration tests
+data/                   → local DB + captures (created on first run)
+assets/templates/       → template images for OpenCV matching
 ```
 
 ---
 
-## Database tables
+## Database tables (Phase 2 SDS)
 
 `User`, `User_Conf`, `Workflow`, `AutomationRule`, `Task`, `NLP_Command`, `Execution_log`, `Screen_capture`
 
@@ -122,7 +134,7 @@ data/                   → local database + captures (created on first run)
 ## Run tests
 
 ```bash
-source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
+source .venv/bin/activate
 pytest -q
 ```
 
@@ -130,26 +142,14 @@ pytest -q
 
 ## Safety notes
 
-- **Dry-run is ON by default.** Turn it off only when you intend to control the desktop for real.
-- With fail-safe enabled, shove the mouse into a screen corner to abort PyAutoGUI actions.
-- The app can control mouse and keyboard — close important work before live demos.
+- Dry-run is ON by default (no real mouse/keyboard until you uncheck it).
+- Fail-safe: move the mouse to a screen corner to abort live PyAutoGUI actions.
+- Voice uses your system microphone through the Microphone API (PyAudio).
 
 ---
 
-## Troubleshooting
+## Architecture
 
-| Problem | What to try |
-|--------|-------------|
-| App won’t start | Activate `.venv`, then `pip install -r requirements.txt` |
-| “Could not understand command” | Use clearer phrases like the examples above |
-| OCR finds nothing | Install Tesseract; make sure text on screen is large/clear |
-| Mic fails | Type instead; install PortAudio / PyAudio |
-| spaCy model missing | `python -m spacy download en_core_web_sm` (rules still work without it) |
+Local 3-tier design:
 
----
-
-## Academic note
-
-This project follows a 3-tier local architecture:
-
-**Presentation (PyQt5) → Logic (NLP + Vision + Automation) → Data (SQLite)**
+**Presentation (PyQt5) → Logic (Speech + NLP + Vision + Automation) → Data (SQLite)**

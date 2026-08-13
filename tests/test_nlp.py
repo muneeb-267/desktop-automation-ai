@@ -26,3 +26,13 @@ def test_wait_scroll_workflow():
     assert engine.parse("wait 2 seconds").intent == "wait"
     assert engine.parse("scroll down 5").entities.get("amount") == 5
     assert engine.parse("run workflow Open Notepad Demo").intent == "run_workflow"
+
+
+def test_spacy_nltk_tokenization():
+    """NLP engine must produce tokens/lemmas via spaCy and/or NLTK."""
+    engine = NLPEngine()
+    parsed = engine.parse("Open notepad")
+    assert parsed.tokens
+    assert parsed.lemmas
+    assert parsed.intent == "open_app"
+    assert parsed.entities.get("app") == "notepad"

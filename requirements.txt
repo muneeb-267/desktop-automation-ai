@@ -1,14 +1,26 @@
+# Presentation Layer
 PyQt5>=5.15.0
+
+# Computer Vision Module (OpenCV + Tesseract OCR)
 opencv-python>=4.8.0
 pytesseract>=0.3.10
-pyautogui>=0.9.54
-numpy>=1.24.0
 Pillow>=10.0.0
+numpy>=1.24.0
 mss>=9.0.0
+
+# Automation Engine
+pyautogui>=0.9.54
+
+# Speech Recognition (Microphone API + STT)
 SpeechRecognition>=3.10.0
-PyYAML>=6.0
+PyAudio>=0.2.13
+
+# NLP Engine (spaCy / NLTK)
 spacy>=3.7.0
 nltk>=3.8.0
+
+# Data / config
+PyYAML>=6.0
+
+# Tests
 pytest>=7.4.0
-# Optional for microphone capture (install system PortAudio first):
-# PyAudio>=0.2.13
