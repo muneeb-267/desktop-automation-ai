@@ -21,9 +21,11 @@ python -m spacy download en_core_web_sm || echo "WARNING: spaCy model download f
 
 echo "==> Optional system packages (Linux)"
 if command -v apt-get >/dev/null 2>&1; then
-  echo "If OCR / microphone are needed, run:"
+  echo "If OCR / microphone / GUI libs are needed, run:"
   echo "  sudo apt-get update"
-  echo "  sudo apt-get install -y tesseract-ocr libportaudio2 portaudio19-dev"
+  echo "  sudo apt-get install -y tesseract-ocr libportaudio2 portaudio19-dev python3-tk scrot \\"
+  echo "    libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \\"
+  echo "    libxcb-render-util0 libxcb-xinerama0 libxcb-cursor0"
 fi
 
 echo "==> Creating data folders"
