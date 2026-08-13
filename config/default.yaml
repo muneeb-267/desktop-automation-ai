@@ -1,0 +1,46 @@
+app:
+  name: "Desktop Automation Using AI"
+  group_id: "S26CS089"
+  version: "1.0.0"
+
+paths:
+  data_dir: "data"
+  db_file: "data/automation.db"
+  captures_dir: "data/captures"
+  templates_dir: "assets/templates"
+  logs_dir: "data/logs"
+
+ui:
+  theme: "light"
+  window_width: 1280
+  window_height: 800
+  min_width: 1100
+  min_height: 700
+
+speech:
+  ambient_seconds: 0.4
+  phrase_time_limit: 8
+  energy_threshold: 300
+  mic_sensitivity: 0.7
+
+nlp:
+  spacy_model: "en_core_web_sm"
+  min_confidence: 0.45
+
+vision:
+  ocr_lang: "eng"
+  template_threshold: 0.78
+  capture_monitor: 0
+
+automation:
+  dry_run: true
+  failsafe: true
+  pause_seconds: 0.35
+  type_interval: 0.04
+  move_duration: 0.25
+  post_action_delay: 0.4
+
+auth:
+  default_username: "demo"
+  default_password: "demo123"
+  default_display_name: "Demo User"
