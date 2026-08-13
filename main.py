@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import sys
 
-from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import QApplication
 
 from src.config import ensure_runtime_dirs, load_config
@@ -19,17 +19,19 @@ from src.speech.recognizer import SpeechService
 from src.workflows.service import WorkflowService
 
 
-def build_context(user: dict):
-    config = load_config()
+def build_context(user: dict, *, config=None, db=None):
+    config = config or load_config()
     ensure_runtime_dirs(config)
-    db = get_database(config)
+    db = db or get_database(config)
+    # Lazy NLP (no spaCy load until needed) keeps startup fast
     pipeline = AutomationPipeline(config, db)
     pipeline.apply_user_settings(user["user_id"])
+    speech = SpeechService(config)
     return {
         "config": config,
         "db": db,
         "pipeline": pipeline,
-        "speech": SpeechService(config),
+        "speech": speech,
         "workflows": WorkflowService(db),
         "user": user,
     }
@@ -59,17 +61,12 @@ def main() -> int:
     if login.exec_() != login.Accepted or not login.user:
         return 0
 
-    ctx = build_context(login.user)
+    ctx = build_context(login.user, config=config, db=db)
     window = MainWindow(ctx)
     window.show()
-    window.setWindowOpacity(0.0)
-    anim = QPropertyAnimation(window, b"windowOpacity")
-    anim.setDuration(260)
-    anim.setStartValue(0.0)
-    anim.setEndValue(1.0)
-    anim.setEasingCurve(QEasingCurve.OutCubic)
-    anim.start()
-    window._open_anim = anim  # type: ignore[attr-defined]
+
+    # Warm microphone in background after UI is up (faster first Mic click)
+    QTimer.singleShot(300, lambda: ctx["speech"].warm_up())
 
     code = app.exec_()
     window.shutdown()

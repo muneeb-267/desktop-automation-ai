@@ -56,7 +56,7 @@ class VoiceCommandPage(QWidget):
         pl.setSpacing(14)
         self.status = QLabel("✓ Ready to Listen")
         self.status.setStyleSheet("font-weight:800;font-size:15px;")
-        hint = QLabel("Click the microphone or type a command below.")
+        hint = QLabel("Click Mic → wait for “Speak now…” → talk clearly. Or type below.")
         hint.setObjectName("pageSubtitle")
         hint.setAlignment(Qt.AlignCenter)
         self.status.setAlignment(Qt.AlignCenter)

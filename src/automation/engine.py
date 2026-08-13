@@ -15,11 +15,11 @@ class AutomationEngine:
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         auto = (config or {}).get("automation", {})
         self.dry_run = bool(auto.get("dry_run", False))
-        self.pause_seconds = float(auto.get("pause_seconds", 0.12))
-        self.type_interval = float(auto.get("type_interval", 0.02))
-        self.move_duration = float(auto.get("move_duration", 0.12))
-        self.post_action_delay = float(auto.get("post_action_delay", 0.25))
-        self.app_launch_wait = float(auto.get("app_launch_wait", 1.4))
+        self.pause_seconds = float(auto.get("pause_seconds", 0.08))
+        self.type_interval = float(auto.get("type_interval", 0.015))
+        self.move_duration = float(auto.get("move_duration", 0.08))
+        self.post_action_delay = float(auto.get("post_action_delay", 0.12))
+        self.app_launch_wait = float(auto.get("app_launch_wait", 0.7))
         self.failsafe = bool(auto.get("failsafe", True))
         self._history: List[Dict[str, Any]] = []
         self._pyautogui = None

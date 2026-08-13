@@ -193,6 +193,9 @@ class MainWindow(QMainWindow):
             btn.setProperty("active", "true" if k == key else "false")
             btn.style().unpolish(btn)
             btn.style().polish(btn)
+        if key == "voice":
+            # Pre-open mic path so first listen feels instant
+            QTimer.singleShot(0, self.speech.warm_up)
         # Light refresh only for the visible page (keeps UI smooth)
         self.schedule_refresh()
 
@@ -223,7 +226,7 @@ class MainWindow(QMainWindow):
             self._refresh_timer.stop()
             self._refresh_all_now()
         else:
-            self._refresh_timer.start(120)
+            self._refresh_timer.start(60)
 
     def refresh_all(self) -> None:
         self.schedule_refresh(immediate=True)
@@ -279,6 +282,13 @@ class MainWindow(QMainWindow):
                 return True
         return False
 
+    def _needs_desktop_focus(self, text: str) -> bool:
+        """URL/app launches don't need minimizing; clicks/typing do."""
+        t = text.lower()
+        if any(k in t for k in ("click", "type", "write", "press", "scroll", "fill")):
+            return True
+        return False
+
     def _run_command(self, text: str, *, source: str = "text") -> None:
         if not text.strip() or self._busy():
             return
@@ -287,8 +297,8 @@ class MainWindow(QMainWindow):
         self.page_voice.set_command_text(text)
         mode = "LIVE" if not self.pipeline.automation.dry_run else "dry-run"
         self.page_voice.set_status_message(f"● Running ({mode})…")
-        # Get our window out of the way so clicks/typing hit the target app
-        if not self.pipeline.automation.dry_run:
+        # Only minimize when we must interact with on-screen UI
+        if not self.pipeline.automation.dry_run and self._needs_desktop_focus(text):
             self.showMinimized()
             QApplication.processEvents()
         self.pipeline.automation.clear_history()

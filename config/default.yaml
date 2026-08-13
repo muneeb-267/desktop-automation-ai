@@ -2,7 +2,7 @@ app:
   name: "Automate AI"
   product_name: "AI Desktop Automation"
   group_id: "S26CS089"
-  version: "0.1.2-alpha"
+  version: "0.1.3-alpha"
   tagline: "Control your desktop using voice commands."
 
 paths:
@@ -20,13 +20,14 @@ ui:
   min_height: 720
 
 speech:
-  ambient_seconds: 0.25
-  phrase_time_limit: 6
-  listen_timeout: 6
-  energy_threshold: 180
-  mic_sensitivity: 0.8
-  pause_threshold: 0.55
-  non_speaking_duration: 0.35
+  ambient_seconds: 0.18
+  phrase_time_limit: 5
+  listen_timeout: 5
+  energy_threshold: 150
+  mic_sensitivity: 0.85
+  pause_threshold: 0.45
+  non_speaking_duration: 0.25
+  language: "en-US"
 
 nlp:
   spacy_model: "en_core_web_sm"
@@ -38,14 +39,13 @@ vision:
   capture_monitor: 0
 
 automation:
-  # Live automation ON by default — uncheck in Settings for safe dry-run
   dry_run: false
   failsafe: true
-  pause_seconds: 0.12
-  type_interval: 0.02
-  move_duration: 0.12
-  post_action_delay: 0.2
-  app_launch_wait: 1.2
+  pause_seconds: 0.08
+  type_interval: 0.015
+  move_duration: 0.08
+  post_action_delay: 0.12
+  app_launch_wait: 0.7
 
 auth:
   default_username: "demo"

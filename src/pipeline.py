@@ -295,11 +295,9 @@ class AutomationPipeline:
                 "label": detection.label,
             }
             result["boxes"] = detection.boxes
-            path = self.vision.save_capture(frame, label=f"click_{element}", boxes=detection.boxes)
-            result["capture_path"] = path
             if not detection.found:
                 # Retry once after a short wait (UI may still be loading)
-                self.automation.wait(0.6)
+                self.automation.wait(0.35)
                 frame = self.vision.capture_screen()
                 detection = self.vision.locate(element, frame=frame)
                 result["detection_retry"] = {
@@ -311,6 +309,10 @@ class AutomationPipeline:
                 }
                 result["boxes"] = detection.boxes
                 if not detection.found:
+                    # Save evidence only on failure (keeps happy path fast)
+                    result["capture_path"] = self.vision.save_capture(
+                        frame, label=f"click_miss_{element}", boxes=detection.boxes
+                    )
                     if self.automation.dry_run:
                         h, w = frame.shape[:2]
                         result["automation"] = self.automation.click(w // 2, h // 2)
