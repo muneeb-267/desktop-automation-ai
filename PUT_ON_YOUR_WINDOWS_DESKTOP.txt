@@ -1,0 +1,52 @@
+HOW TO PUT AUTOMATE AI ON YOUR WINDOWS DESKTOP
+==============================================
+
+What you saw earlier was the Cloud Agent remote Linux desktop — NOT this
+Windows PC. The app must be installed ONCE on your Windows computer.
+
+FASTEST WAY (ZIP download)
+--------------------------
+1. Open Chrome and go to:
+   https://github.com/muneeb-267/desktop-automation-ai/archive/refs/heads/cursor/desktop-automation-ai-a8ac.zip
+
+2. Extract the ZIP (right-click → Extract All…) to somewhere easy, e.g.:
+   Desktop\desktop-automation-ai
+
+3. Open that folder and DOUBLE-CLICK:
+   INSTALL_ON_YOUR_WINDOWS_PC.bat
+
+4. Wait until it finishes. It creates a Desktop shortcut named:
+   Automate AI
+
+5. Double-click "Automate AI" → Sign Up Now with YOUR username/password.
+
+
+USING GITHUB DESKTOP (you already have it)
+------------------------------------------
+1. Open GitHub Desktop
+2. File → Clone repository → URL:
+   https://github.com/muneeb-267/desktop-automation-ai.git
+3. After clone: Repository → Show in Explorer
+4. Checkout branch: cursor/desktop-automation-ai-a8ac
+   (Branch → New / Current, or in Git Bash: git checkout cursor/desktop-automation-ai-a8ac)
+5. Double-click INSTALL_ON_YOUR_WINDOWS_PC.bat
+
+
+NEED PYTHON?
+------------
+If the installer says Python is missing:
+1. https://www.python.org/downloads/
+2. Tick "Add python.exe to PATH"
+3. Install, then run INSTALL_ON_YOUR_WINDOWS_PC.bat again
+
+
+OPTIONAL (better OCR on Windows)
+--------------------------------
+Install Tesseract OCR:
+https://github.com/UB-Mannheim/tesseract/wiki
+
+
+LOGIN
+-----
+There is NO demo account.
+Use Sign Up Now with your own email/username and password.
