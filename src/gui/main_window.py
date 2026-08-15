@@ -95,36 +95,42 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Sidebar
+        # Sidebar — wide enough for full nav labels
         side = QFrame()
         side.setObjectName("sideBar")
-        side.setFixedWidth(190)
+        side.setFixedWidth(228)
         sl = QVBoxLayout(side)
-        sl.setContentsMargins(16, 18, 16, 16)
-        sl.setSpacing(6)
+        sl.setContentsMargins(14, 18, 14, 16)
+        sl.setSpacing(4)
 
         brand_row = QHBoxLayout()
+        brand_row.setSpacing(10)
         mark = QLabel("⌁")
+        mark.setFixedSize(32, 32)
+        mark.setAlignment(Qt.AlignCenter)
         mark.setStyleSheet(
-            "background:#111827;color:white;border-radius:7px;padding:4px 8px;font-weight:800;"
+            "background:#0f172a;color:#ffffff;border-radius:8px;"
+            "font-weight:800;font-size:16px;"
         )
         brand = QLabel(self.config.get("app", {}).get("name", "Automate AI"))
         brand.setObjectName("sideBrand")
-        brand_row.addWidget(mark)
-        brand_row.addWidget(brand)
-        brand_row.addStretch()
+        brand.setWordWrap(True)
+        brand_row.addWidget(mark, 0, Qt.AlignTop)
+        brand_row.addWidget(brand, 1)
         sl.addLayout(brand_row)
-        sl.addSpacing(18)
+        sl.addSpacing(16)
 
         for key, label in (
             ("dashboard", "Dashboard"),
             ("voice", "Voice Command"),
             ("history", "Execution History"),
-            ("workflows", "Workflow Management"),
+            ("workflows", "Workflows"),
             ("settings", "Settings"),
         ):
             btn = QPushButton(label)
             btn.setObjectName("btnNav")
+            btn.setMinimumHeight(38)
+            btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda _=False, k=key: self._show_page(k))
             self._nav_buttons[key] = btn
             sl.addWidget(btn)
@@ -132,9 +138,12 @@ class MainWindow(QMainWindow):
         sl.addStretch()
         ready = QLabel("● SYSTEM_READY")
         ready.setObjectName("statusChip")
+        ready.setAlignment(Qt.AlignCenter)
         sl.addWidget(ready)
+        sl.addSpacing(8)
         signout = QPushButton("Sign Out")
         signout.setObjectName("btnSecondary")
+        signout.setMinimumHeight(36)
         signout.clicked.connect(self.close)
         sl.addWidget(signout)
 
@@ -147,15 +156,17 @@ class MainWindow(QMainWindow):
         top.setObjectName("topBar")
         tl = QHBoxLayout(top)
         tl.setContentsMargins(20, 12, 20, 12)
+        tl.setSpacing(12)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search commands or logs...")
+        self.search.setPlaceholderText("Search commands or logs…")
+        self.search.setMinimumHeight(36)
         self.search.returnPressed.connect(self._search)
         user_lbl = QLabel(self.user.get("username", "user"))
         user_lbl.setStyleSheet(
-            "background:#e5e7eb;border-radius:14px;padding:6px 10px;font-weight:700;"
+            "background:#eef2f7;color:#0f172a;border-radius:16px;"
+            "padding:8px 14px;font-weight:600;"
         )
         tl.addWidget(self.search, 1)
-        tl.addWidget(QLabel("🔔"))
         tl.addWidget(user_lbl)
 
         self.stack = QStackedWidget()

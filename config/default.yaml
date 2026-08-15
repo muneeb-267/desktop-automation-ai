@@ -2,7 +2,7 @@ app:
   name: "Automate AI"
   product_name: "AI Desktop Automation"
   group_id: "S26CS089"
-  version: "0.1.6-alpha"
+  version: "0.1.7-alpha"
   tagline: "Control your desktop using voice commands."
 
 paths:

@@ -1,150 +1,323 @@
-"""Automate AI light / dark themes."""
+"""Professional Automate AI themes — clean spacing, no overlap."""
 
 from __future__ import annotations
 
 LIGHT_STYLE = """
-* {
-    font-family: "Segoe UI", "IBM Plex Sans", "Source Sans 3", "Noto Sans", sans-serif;
-    color: #1a1d21;
+QWidget {
+    font-family: "Segoe UI", "IBM Plex Sans", "Noto Sans", sans-serif;
     font-size: 13px;
+    color: #111827;
 }
-
 QMainWindow, QDialog {
-    background: #f3f4f6;
+    background: #f5f6f8;
 }
 
-#landingRoot { background: #f3f4f6; }
-#brandPanel { background: #eef0f3; }
+/* Login */
+#landingRoot { background: #f5f6f8; }
+#brandPanel { background: #eef1f5; }
 #formPanel { background: #ffffff; }
-#brandLogo { font-size: 22px; font-weight: 800; color: #111827; }
+#brandLogo { font-size: 20px; font-weight: 700; color: #0f172a; }
 #brandEyebrow {
-    color: #6b7280; font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+    color: #64748b; font-size: 11px; font-weight: 700; letter-spacing: 1px;
 }
-#brandHeadline { font-size: 26px; font-weight: 800; color: #111827; }
+#brandHeadline { font-size: 28px; font-weight: 700; color: #0f172a; }
 #brandHeadlineAccent {
-    font-size: 26px; font-weight: 500; font-style: italic; color: #6b7280;
+    font-size: 28px; font-weight: 500; font-style: italic; color: #64748b;
 }
-#brandBody { color: #4b5563; font-size: 14px; }
+#brandBody { color: #475569; font-size: 13px; }
 #featureCard {
-    background: #111827; border-radius: 14px; color: #f9fafb; padding: 18px;
+    background: #0f172a; border-radius: 12px; color: #f8fafc; padding: 16px;
 }
-#featureCardTitle { color: #ffffff; font-size: 18px; font-weight: 700; }
-#featureCardBody { color: #d1d5db; font-size: 12px; }
-#loginTitle { font-size: 26px; font-weight: 800; }
-#loginSubtitle { color: #6b7280; }
+#featureCardTitle { color: #ffffff; font-size: 16px; font-weight: 700; }
+#featureCardBody { color: #cbd5e1; font-size: 12px; }
+#loginTitle { font-size: 22px; font-weight: 700; }
+#loginSubtitle { color: #64748b; }
 
-QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox {
     background: #ffffff;
     border: 1px solid #d1d5db;
     border-radius: 8px;
-    padding: 10px 12px;
-    selection-background-color: #dbe4ee;
+    padding: 8px 10px;
+    min-height: 18px;
+    selection-background-color: #dbeafe;
 }
-QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus { border: 1px solid #111827; }
+QComboBox {
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    padding: 8px 28px 8px 10px;
+    min-height: 18px;
+    min-width: 120px;
+}
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 28px;
+    border: none;
+}
+QComboBox QAbstractItemView {
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    selection-background-color: #e5e7eb;
+    outline: 0;
+}
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus,
+QSpinBox:focus, QDoubleSpinBox:focus {
+    border: 1px solid #0f172a;
+}
 
 QPushButton {
-    background: #111827; color: #ffffff; border: none; border-radius: 8px;
-    padding: 10px 16px; font-weight: 700;
+    background: #0f172a;
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    padding: 9px 14px;
+    font-weight: 600;
+    min-height: 20px;
 }
-QPushButton:hover { background: #1f2937; }
-QPushButton:disabled { background: #9ca3af; }
-QPushButton#btnGhost, QPushButton#btnSecondary {
-    background: #f3f4f6; color: #111827; border: 1px solid #d1d5db;
-}
-QPushButton#btnGhost:hover, QPushButton#btnSecondary:hover { background: #e5e7eb; }
-QPushButton#btnNav {
-    background: transparent; color: #374151; text-align: left;
-    padding: 12px 14px; border-radius: 10px; font-weight: 600;
-}
-QPushButton#btnNav:hover { background: #e5e7eb; }
-QPushButton#btnNav[active="true"] {
-    background: #e5e7eb; color: #111827; font-weight: 800;
-}
-QPushButton#btnMicBig {
-    background: #111827; border-radius: 36px;
-    min-width: 88px; min-height: 72px; max-width: 120px; max-height: 72px;
-    font-size: 15px; font-weight: 800; padding: 6px 10px;
-}
-QPushButton#btnMicBig:disabled { background: #6b7280; }
-QPushButton#btnDanger { background: #b42318; color: #ffffff; }
+QPushButton:hover { background: #1e293b; }
+QPushButton:pressed { background: #020617; }
+QPushButton:disabled { background: #94a3b8; color: #f8fafc; }
 
-#sideBar { background: #ffffff; border-right: 1px solid #e5e7eb; }
-#sideBrand { font-size: 16px; font-weight: 800; }
-#topBar { background: #ffffff; border-bottom: 1px solid #e5e7eb; }
-#pageTitle { font-size: 20px; font-weight: 800; }
-#pageSubtitle { color: #6b7280; font-size: 13px; }
+QPushButton#btnGhost, QPushButton#btnSecondary {
+    background: #ffffff;
+    color: #0f172a;
+    border: 1px solid #d1d5db;
+}
+QPushButton#btnGhost:hover, QPushButton#btnSecondary:hover {
+    background: #f3f4f6;
+}
+
+QPushButton#btnNav {
+    background: transparent;
+    color: #334155;
+    text-align: left;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-weight: 600;
+    border: none;
+}
+QPushButton#btnNav:hover { background: #eef2f7; }
+QPushButton#btnNav[active="true"] {
+    background: #e8eef6;
+    color: #0f172a;
+    font-weight: 700;
+}
+
+QPushButton#btnMicBig {
+    background: #0f172a;
+    color: #ffffff;
+    border-radius: 28px;
+    min-width: 96px;
+    max-width: 120px;
+    min-height: 56px;
+    max-height: 56px;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 8px 12px;
+}
+QPushButton#btnMicBig:disabled { background: #94a3b8; }
+QPushButton#btnDanger { background: #b91c1c; color: #ffffff; }
+QPushButton#btnDanger:hover { background: #991b1b; }
+QPushButton#btnPrimary {
+    background: #0f172a;
+    color: #ffffff;
+    padding: 10px 18px;
+    font-weight: 700;
+}
+
+#sideBar {
+    background: #ffffff;
+    border-right: 1px solid #e5e7eb;
+}
+#sideBrand { font-size: 15px; font-weight: 700; color: #0f172a; }
+#topBar {
+    background: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+}
+#pageTitle { font-size: 22px; font-weight: 700; color: #0f172a; }
+#pageSubtitle { color: #64748b; font-size: 12px; }
+
 #statusChip {
-    background: #ecfdf3; color: #067647; border-radius: 12px;
-    padding: 4px 10px; font-weight: 700;
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #a7f3d0;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-weight: 600;
+    font-size: 11px;
 }
+
 #metricCard, #panelCard, #workflowCard, #voicePanel {
-    background: #ffffff; border: 1px solid #e5e7eb; border-radius: 14px;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
 }
-#metricValue { font-size: 28px; font-weight: 800; }
-#metricLabel { color: #6b7280; font-size: 12px; font-weight: 600; }
-#metricHint { color: #9ca3af; font-size: 11px; }
+#metricCard {
+    min-height: 100px;
+}
+#workflowCard {
+    min-height: 140px;
+    padding: 2px;
+}
+#metricLabel {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+}
+#metricValue {
+    color: #0f172a;
+    font-size: 24px;
+    font-weight: 700;
+    padding: 0;
+    margin: 0;
+    min-height: 28px;
+}
+#metricHint {
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 400;
+}
 
 QTableWidget {
-    background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px;
-    gridline-color: #f3f4f6;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    gridline-color: #f1f5f9;
+    outline: 0;
+    alternate-background-color: #f8fafc;
 }
+QTableWidget::item { padding: 8px 6px; }
 QHeaderView::section {
-    background: #f9fafb; border: none; border-bottom: 1px solid #e5e7eb;
-    padding: 8px; font-weight: 700; color: #4b5563;
+    background: #f8fafc;
+    border: none;
+    border-bottom: 1px solid #e5e7eb;
+    border-right: 1px solid #f1f5f9;
+    padding: 10px 12px;
+    font-weight: 600;
+    color: #475569;
+    min-height: 28px;
 }
-QListWidget { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; }
-QSlider::groove:horizontal { height: 6px; background: #e5e7eb; border-radius: 3px; }
+QListWidget {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 4px;
+}
+QListWidget::item { padding: 6px 8px; border-radius: 6px; }
+QListWidget::item:selected { background: #e8eef6; color: #0f172a; }
+
+QSlider::groove:horizontal {
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 3px;
+}
 QSlider::handle:horizontal {
-    width: 16px; margin: -6px 0; border-radius: 8px; background: #111827;
+    width: 16px;
+    height: 16px;
+    margin: -5px 0;
+    border-radius: 8px;
+    background: #0f172a;
 }
-QCheckBox { spacing: 8px; }
+QCheckBox { spacing: 8px; color: #334155; }
+QCheckBox::indicator {
+    width: 16px; height: 16px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #ffffff;
+}
+QCheckBox::indicator:checked {
+    background: #0f172a;
+    border-color: #0f172a;
+}
 QScrollArea { border: none; background: transparent; }
-#footerLabel { color: #9ca3af; font-size: 11px; }
-#logFrame { border: 1px solid #1f2937; border-radius: 10px; }
+QScrollBar:vertical {
+    background: transparent; width: 10px; margin: 0;
+}
+QScrollBar::handle:vertical {
+    background: #cbd5e1; border-radius: 5px; min-height: 30px;
+}
+#footerLabel { color: #94a3b8; font-size: 11px; }
+#logFrame {
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    background: #0f172a;
+}
+#sectionTitle {
+    font-size: 14px;
+    font-weight: 700;
+    color: #0f172a;
+}
 """
 
 DARK_STYLE = """
-* {
-    font-family: "Segoe UI", "IBM Plex Sans", "Source Sans 3", "Noto Sans", sans-serif;
-    color: #e5e7eb;
+QWidget {
+    font-family: "Segoe UI", "IBM Plex Sans", "Noto Sans", sans-serif;
     font-size: 13px;
+    color: #e2e8f0;
 }
+QMainWindow, QDialog { background: #0b1220; }
 
-QMainWindow, QDialog { background: #0f172a; }
-
-#landingRoot { background: #0f172a; }
+#landingRoot { background: #0b1220; }
 #brandPanel { background: #111827; }
 #formPanel { background: #1e293b; }
-#brandLogo { font-size: 22px; font-weight: 800; color: #f8fafc; }
+#brandLogo { font-size: 20px; font-weight: 700; color: #f8fafc; }
 #brandEyebrow {
-    color: #94a3b8; font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+    color: #94a3b8; font-size: 11px; font-weight: 700; letter-spacing: 1px;
 }
-#brandHeadline { font-size: 26px; font-weight: 800; color: #f8fafc; }
+#brandHeadline { font-size: 28px; font-weight: 700; color: #f8fafc; }
 #brandHeadlineAccent {
-    font-size: 26px; font-weight: 500; font-style: italic; color: #94a3b8;
+    font-size: 28px; font-weight: 500; font-style: italic; color: #94a3b8;
 }
-#brandBody { color: #cbd5e1; font-size: 14px; }
+#brandBody { color: #cbd5e1; font-size: 13px; }
 #featureCard {
-    background: #020617; border-radius: 14px; color: #f8fafc; padding: 18px;
+    background: #020617; border-radius: 12px; color: #f8fafc; padding: 16px;
 }
-#featureCardTitle { color: #ffffff; font-size: 18px; font-weight: 700; }
+#featureCardTitle { color: #ffffff; font-size: 16px; font-weight: 700; }
 #featureCardBody { color: #94a3b8; font-size: 12px; }
-#loginTitle { font-size: 26px; font-weight: 800; color: #f8fafc; }
+#loginTitle { font-size: 22px; font-weight: 700; color: #f8fafc; }
 #loginSubtitle { color: #94a3b8; }
 
-QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox {
     background: #0f172a;
     border: 1px solid #334155;
     border-radius: 8px;
-    padding: 10px 12px;
+    padding: 8px 10px;
     color: #e2e8f0;
-    selection-background-color: #334155;
+    min-height: 18px;
 }
-QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus { border: 1px solid #94a3b8; }
+QComboBox {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 8px 28px 8px 10px;
+    color: #e2e8f0;
+    min-height: 18px;
+    min-width: 120px;
+}
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 28px;
+    border: none;
+}
+QComboBox QAbstractItemView {
+    background: #0f172a;
+    border: 1px solid #334155;
+    selection-background-color: #1e293b;
+    color: #e2e8f0;
+    outline: 0;
+}
 
 QPushButton {
-    background: #38bdf8; color: #0f172a; border: none; border-radius: 8px;
-    padding: 10px 16px; font-weight: 700;
+    background: #38bdf8;
+    color: #0f172a;
+    border: none;
+    border-radius: 8px;
+    padding: 9px 14px;
+    font-weight: 700;
+    min-height: 20px;
 }
 QPushButton:hover { background: #7dd3fc; }
 QPushButton:disabled { background: #475569; color: #cbd5e1; }
@@ -154,58 +327,62 @@ QPushButton#btnGhost, QPushButton#btnSecondary {
 QPushButton#btnGhost:hover, QPushButton#btnSecondary:hover { background: #334155; }
 QPushButton#btnNav {
     background: transparent; color: #cbd5e1; text-align: left;
-    padding: 12px 14px; border-radius: 10px; font-weight: 600;
+    padding: 10px 12px; border-radius: 8px; font-weight: 600; border: none;
 }
 QPushButton#btnNav:hover { background: #1e293b; }
 QPushButton#btnNav[active="true"] {
-    background: #1e293b; color: #f8fafc; font-weight: 800;
+    background: #1e293b; color: #f8fafc; font-weight: 700;
 }
 QPushButton#btnMicBig {
-    background: #38bdf8; color: #0f172a; border-radius: 36px;
-    min-width: 88px; min-height: 72px; max-width: 120px; max-height: 72px;
-    font-size: 15px; font-weight: 800; padding: 6px 10px;
+    background: #38bdf8; color: #0f172a; border-radius: 28px;
+    min-width: 96px; max-width: 120px; min-height: 56px; max-height: 56px;
+    font-size: 14px; font-weight: 700;
 }
-QPushButton#btnMicBig:disabled { background: #475569; color: #cbd5e1; }
 QPushButton#btnDanger { background: #ef4444; color: #ffffff; }
+QPushButton#btnPrimary {
+    background: #38bdf8; color: #0f172a; padding: 10px 18px; font-weight: 700;
+}
 
 #sideBar { background: #111827; border-right: 1px solid #1e293b; }
-#sideBrand { font-size: 16px; font-weight: 800; color: #f8fafc; }
+#sideBrand { font-size: 15px; font-weight: 700; color: #f8fafc; }
 #topBar { background: #111827; border-bottom: 1px solid #1e293b; }
-#pageTitle { font-size: 20px; font-weight: 800; color: #f8fafc; }
-#pageSubtitle { color: #94a3b8; font-size: 13px; }
+#pageTitle { font-size: 22px; font-weight: 700; color: #f8fafc; }
+#pageSubtitle { color: #94a3b8; font-size: 12px; }
 #statusChip {
-    background: #064e3b; color: #6ee7b7; border-radius: 12px;
-    padding: 4px 10px; font-weight: 700;
+    background: #064e3b; color: #6ee7b7; border: 1px solid #065f46;
+    border-radius: 999px; padding: 5px 10px; font-weight: 600; font-size: 11px;
 }
 #metricCard, #panelCard, #workflowCard, #voicePanel {
-    background: #1e293b; border: 1px solid #334155; border-radius: 14px;
+    background: #1e293b; border: 1px solid #334155; border-radius: 12px;
 }
-#metricValue { font-size: 28px; font-weight: 800; color: #f8fafc; }
-#metricLabel { color: #94a3b8; font-size: 12px; font-weight: 600; }
+#metricCard { min-height: 100px; }
+#workflowCard { min-height: 140px; }
+#metricLabel { color: #94a3b8; font-size: 11px; font-weight: 600; }
+#metricValue { color: #f8fafc; font-size: 24px; font-weight: 700; min-height: 28px; }
 #metricHint { color: #64748b; font-size: 11px; }
 
 QTableWidget {
-    background: #0f172a; border: 1px solid #334155; border-radius: 10px;
-    gridline-color: #1e293b; color: #e2e8f0;
+    background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+    gridline-color: #1e293b; color: #e2e8f0; outline: 0;
 }
 QHeaderView::section {
     background: #1e293b; border: none; border-bottom: 1px solid #334155;
-    padding: 8px; font-weight: 700; color: #94a3b8;
+    padding: 8px 10px; font-weight: 600; color: #94a3b8;
 }
 QListWidget {
-    background: #0f172a; border: 1px solid #334155; border-radius: 10px; color: #e2e8f0;
+    background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0;
 }
 QSlider::groove:horizontal { height: 6px; background: #334155; border-radius: 3px; }
 QSlider::handle:horizontal {
-    width: 16px; margin: -6px 0; border-radius: 8px; background: #38bdf8;
+    width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; background: #38bdf8;
 }
 QCheckBox { spacing: 8px; color: #e2e8f0; }
 QScrollArea { border: none; background: transparent; }
 #footerLabel { color: #64748b; font-size: 11px; }
-#logFrame { border: 1px solid #334155; border-radius: 10px; }
+#logFrame { border: 1px solid #334155; border-radius: 8px; background: #020617; }
+#sectionTitle { font-size: 14px; font-weight: 700; color: #f8fafc; }
 """
 
-# Backward-compatible alias
 APP_STYLE = LIGHT_STYLE
 
 
