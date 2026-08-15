@@ -24,6 +24,7 @@ class WorkflowsPage(QWidget):
     run_requested = pyqtSignal(int)
     create_requested = pyqtSignal(str, str)
     delete_requested = pyqtSignal(int)
+    edit_requested = pyqtSignal(int)
     refresh_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
@@ -165,10 +166,14 @@ class WorkflowsPage(QWidget):
         row = QHBoxLayout()
         run = QPushButton("Run Workflow")
         run.clicked.connect(lambda _=False, i=wf["workflow_id"]: self.run_requested.emit(i))
+        edit = QPushButton("Edit")
+        edit.setObjectName("btnSecondary")
+        edit.clicked.connect(lambda _=False, i=wf["workflow_id"]: self.edit_requested.emit(i))
         delete = QPushButton("Delete")
         delete.setObjectName("btnGhost")
         delete.clicked.connect(lambda _=False, i=wf["workflow_id"]: self.delete_requested.emit(i))
         row.addWidget(run)
+        row.addWidget(edit)
         row.addWidget(delete)
         lay.addWidget(icon)
         lay.addWidget(title)

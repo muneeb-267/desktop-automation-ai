@@ -28,6 +28,25 @@ def test_wait_scroll_workflow():
     assert engine.parse("run workflow Open Notepad Demo").intent == "run_workflow"
 
 
+def test_click_button_and_fill_form():
+    engine = NLPEngine()
+    click = engine.parse("Click button Login")
+    assert click.intent == "click_button"
+    assert "login" in click.entities.get("element", "").lower()
+
+    filled = engine.parse("Fill username with alice")
+    assert filled.intent == "fill_form"
+    assert "username" in filled.entities.get("field", "").lower()
+    assert "alice" in filled.entities.get("text", "").lower()
+
+
+def test_unknown_command_graceful():
+    engine = NLPEngine()
+    parsed = engine.parse("asdf qwer zxcv")
+    assert parsed.intent == "unknown"
+    assert parsed.confidence < 0.5
+
+
 def test_spacy_nltk_tokenization():
     """NLP engine must produce tokens/lemmas via spaCy and/or NLTK."""
     engine = NLPEngine()
@@ -36,3 +55,4 @@ def test_spacy_nltk_tokenization():
     assert parsed.lemmas
     assert parsed.intent == "open_app"
     assert parsed.entities.get("app") == "notepad"
+

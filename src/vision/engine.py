@@ -44,6 +44,8 @@ class VisionEngine:
 
     def capture_screen(self) -> np.ndarray:
         """Return RGB numpy array of the primary (or configured) monitor."""
+        self._capture_ok = True
+        self._capture_error = ""
         try:
             import mss
             from PIL import Image
@@ -56,12 +58,22 @@ class VisionEngine:
                 shot = sct.grab(mon)
                 img = Image.frombytes("RGB", shot.size, shot.rgb)
                 frame = np.array(img)
-        except Exception:
+        except Exception as exc:
+            self._capture_ok = False
+            self._capture_error = str(exc)
             # Headless / restricted environments: synthetic frame
             frame = np.zeros((540, 960, 3), dtype=np.uint8)
             frame[:] = (32, 40, 48)
         self._last_frame_rgb = frame
         return frame
+
+    @property
+    def last_capture_ok(self) -> bool:
+        return bool(getattr(self, "_capture_ok", True))
+
+    @property
+    def last_capture_error(self) -> str:
+        return str(getattr(self, "_capture_error", ""))
 
     @property
     def last_frame(self) -> Optional[np.ndarray]:
@@ -111,6 +123,8 @@ class VisionEngine:
             from pytesseract import Output
 
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            # Mild denoise helps OCR on noisy desktop captures
+            gray = cv2.GaussianBlur(gray, (3, 3), 0)
             data = pytesseract.image_to_data(
                 gray, lang=self.ocr_lang, output_type=Output.DICT
             )
@@ -119,7 +133,7 @@ class VisionEngine:
 
         boxes: List[Dict[str, Any]] = []
         n = len(data.get("text", []))
-        best: Optional[DetectionResult] = None
+        words: List[Dict[str, Any]] = []
         for i in range(n):
             text = (data["text"][i] or "").strip()
             if not text:
@@ -128,25 +142,78 @@ class VisionEngine:
                 conf = float(data["conf"][i])
             except (ValueError, TypeError):
                 conf = -1.0
-            if conf < 40:
+            if conf < 35:
                 continue
             x, y, w, h = data["left"][i], data["top"][i], data["width"][i], data["height"][i]
-            boxes.append({"x": x, "y": y, "w": w, "h": h, "label": text, "conf": conf})
-            if query_l in text.lower() or text.lower() in query_l:
-                cx, cy = x + w // 2, y + h // 2
-                candidate = DetectionResult(
-                    found=True,
-                    x=cx,
-                    y=cy,
-                    width=w,
-                    height=h,
-                    label=text,
-                    method="ocr",
-                    confidence=max(0.0, conf / 100.0),
-                    boxes=boxes,
-                )
-                if best is None or candidate.confidence > best.confidence:
-                    best = candidate
+            item = {
+                "x": x,
+                "y": y,
+                "w": w,
+                "h": h,
+                "label": text,
+                "conf": conf,
+                "line": data.get("line_num", [0] * n)[i],
+                "block": data.get("block_num", [0] * n)[i],
+            }
+            boxes.append(item)
+            words.append(item)
+
+        best: Optional[DetectionResult] = None
+
+        def consider(label: str, x: int, y: int, w: int, h: int, conf: float) -> None:
+            nonlocal best
+            cx, cy = x + w // 2, y + h // 2
+            candidate = DetectionResult(
+                found=True,
+                x=cx,
+                y=cy,
+                width=w,
+                height=h,
+                label=label,
+                method="ocr",
+                confidence=max(0.0, min(1.0, conf / 100.0)),
+                boxes=boxes,
+            )
+            if best is None or candidate.confidence > best.confidence:
+                best = candidate
+
+        # Single-word matches
+        for item in words:
+            text_l = item["label"].lower()
+            if query_l in text_l or text_l in query_l:
+                consider(item["label"], item["x"], item["y"], item["w"], item["h"], item["conf"])
+
+        # Multi-word / phrase matches by joining same-line neighbors
+        if " " in query_l and words:
+            # Group by block+line
+            lines: Dict[Tuple[Any, Any], List[Dict[str, Any]]] = {}
+            for item in words:
+                key = (item.get("block"), item.get("line"))
+                lines.setdefault(key, []).append(item)
+            for group in lines.values():
+                group.sort(key=lambda w: w["x"])
+                joined = " ".join(w["label"] for w in group)
+                if query_l in joined.lower():
+                    x0 = group[0]["x"]
+                    y0 = min(w["y"] for w in group)
+                    x1 = group[-1]["x"] + group[-1]["w"]
+                    y1 = max(w["y"] + w["h"] for w in group)
+                    avg_conf = sum(w["conf"] for w in group) / max(1, len(group))
+                    consider(joined, x0, y0, x1 - x0, y1 - y0, avg_conf)
+                else:
+                    # Sliding window of consecutive words
+                    for i in range(len(group)):
+                        for j in range(i + 1, len(group) + 1):
+                            chunk = group[i:j]
+                            phrase = " ".join(w["label"] for w in chunk)
+                            if query_l == phrase.lower() or query_l in phrase.lower():
+                                x0 = chunk[0]["x"]
+                                y0 = min(w["y"] for w in chunk)
+                                x1 = chunk[-1]["x"] + chunk[-1]["w"]
+                                y1 = max(w["y"] + w["h"] for w in chunk)
+                                avg_conf = sum(w["conf"] for w in chunk) / max(1, len(chunk))
+                                consider(phrase, x0, y0, x1 - x0, y1 - y0, avg_conf)
+
         if best:
             best.boxes = boxes
             return best

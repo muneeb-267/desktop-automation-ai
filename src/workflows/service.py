@@ -131,6 +131,36 @@ class WorkflowService:
                         "params": {"seconds": item.get("seconds", 1)},
                     }
                 )
+            elif action == "search_google":
+                mapped.append(
+                    {
+                        "intent": "search_web",
+                        "target_app": "chrome",
+                        "target_element": "",
+                        "input_value": item.get("query", ""),
+                        "params": {"query": item.get("query", ""), "url": item.get("url", "")},
+                    }
+                )
+            elif action == "open_url":
+                mapped.append(
+                    {
+                        "intent": "open_app",
+                        "target_app": "chrome",
+                        "target_element": "",
+                        "input_value": item.get("url", ""),
+                        "params": {"url": item.get("url", "")},
+                    }
+                )
+            elif action == "address_bar_search":
+                mapped.append(
+                    {
+                        "intent": "search_web",
+                        "target_app": "",
+                        "target_element": "",
+                        "input_value": item.get("query", ""),
+                        "params": {"query": item.get("query", "")},
+                    }
+                )
         return mapped
 
     @staticmethod
@@ -144,13 +174,20 @@ class WorkflowService:
         intent = task.get("intent", "wait")
         entities: Dict[str, Any] = dict(params) if isinstance(params, dict) else {}
         if intent == "open_app":
-            entities["app"] = task.get("target_app", "")
-        elif intent == "click_text":
-            entities["element"] = task.get("target_element", "")
+            entities["app"] = task.get("target_app", "") or entities.get("app", "")
+            if entities.get("url") and not entities.get("app"):
+                entities["app"] = "chrome"
+        elif intent in ("click_text", "click_button"):
+            entities["element"] = task.get("target_element", "") or entities.get("element", "")
+        elif intent == "fill_form":
+            entities["field"] = task.get("target_element", "") or entities.get("field", "")
+            entities["text"] = task.get("input_value", "") or entities.get("text", "")
         elif intent == "type_text":
-            entities["text"] = task.get("input_value", "")
+            entities["text"] = task.get("input_value", "") or entities.get("text", "")
+            if task.get("target_element"):
+                entities["field"] = task.get("target_element")
         elif intent == "press_key":
-            entities["key"] = task.get("input_value", "")
+            entities["key"] = task.get("input_value", "") or entities.get("key", "enter")
         elif intent == "wait":
             entities["seconds"] = float(entities.get("seconds") or task.get("input_value") or 1)
         elif intent == "search_web":

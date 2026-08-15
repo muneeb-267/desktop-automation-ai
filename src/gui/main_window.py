@@ -19,11 +19,16 @@ from PyQt5.QtWidgets import (
     QFrame,
     QApplication,
     QShortcut,
+    QInputDialog,
+    QTextEdit,
+    QDialog,
+    QDialogButtonBox,
 )
 
 from src.db.repositories import (
     ExecutionLogRepository,
     NLPCommandRepository,
+    ScreenCaptureRepository,
     TaskRepository,
     UserConfRepository,
 )
@@ -32,7 +37,7 @@ from src.gui.pages.history_page import HistoryPage
 from src.gui.pages.settings_page import SettingsPage
 from src.gui.pages.voice_page import VoiceCommandPage
 from src.gui.pages.workflows_page import WorkflowsPage
-from src.gui.styles import APP_STYLE
+from src.gui.styles import get_app_style
 from src.gui.workers import CommandWorker, SpeechWorker, WorkflowWorker
 
 
@@ -50,13 +55,14 @@ class MainWindow(QMainWindow):
         self.log_repo = ExecutionLogRepository(self.db)
         self.nlp_repo = NLPCommandRepository(self.db)
         self.task_repo = TaskRepository(self.db)
+        self.capture_repo = ScreenCaptureRepository(self.db)
 
         app_name = self.config.get("app", {}).get("name", "Automate AI")
         self.setWindowTitle(app_name)
         self.setMinimumSize(QSize(1180, 720))
         ui = self.config.get("ui", {})
         self.resize(int(ui.get("window_width", 1360)), int(ui.get("window_height", 860)))
-        self.setStyleSheet(APP_STYLE)
+        self.setStyleSheet(get_app_style(ui.get("theme", "light")))
 
         self._command_worker: Optional[CommandWorker] = None
         self._workflow_worker: Optional[WorkflowWorker] = None
@@ -175,10 +181,12 @@ class MainWindow(QMainWindow):
         self.page_voice.mic_requested.connect(self._listen)
         self.page_voice.rerun_requested.connect(self._run_command)
         self.page_voice.sensitivity_changed.connect(self._set_sensitivity)
+        self.page_voice.stop_requested.connect(self._stop_workers)
 
         self.page_workflows.run_requested.connect(self._run_workflow)
         self.page_workflows.create_requested.connect(self._create_workflow)
         self.page_workflows.delete_requested.connect(self._delete_workflow)
+        self.page_workflows.edit_requested.connect(self._edit_workflow)
         self.page_workflows.refresh_requested.connect(self.refresh_all)
 
         self.page_settings.save_requested.connect(self._save_settings)
@@ -229,6 +237,15 @@ class MainWindow(QMainWindow):
         if cloud["gemini"]:
             bits.append("Gemini")
         self.page_voice.set_engine_label("Engine: " + " · ".join(bits))
+        self._apply_theme(str(conf.get("theme") or self.config.get("ui", {}).get("theme", "light")))
+
+    def _apply_theme(self, theme: str) -> None:
+        app = QApplication.instance()
+        style = get_app_style(theme)
+        if app is not None:
+            app.setStyleSheet(style)
+        self.setStyleSheet(style)
+        self.conf_repo.set(self.user["user_id"], "theme", theme)
 
     def _save_settings(self, values: dict) -> None:
         self.conf_repo.update_many(self.user["user_id"], values)
@@ -238,6 +255,8 @@ class MainWindow(QMainWindow):
             openai_key=str(values.get("openai_api_key") or ""),
             gemini_key=str(values.get("gemini_api_key") or ""),
         )
+        if values.get("theme"):
+            self._apply_theme(str(values["theme"]))
         cloud = self.speech.cloud_status()
         bits = ["Chrome voice"]
         if cloud["openai"]:
@@ -279,7 +298,12 @@ class MainWindow(QMainWindow):
             self.page_dashboard.update_stats(stats, dry_run=dry)
             self.page_dashboard.update_activity(logs)
         elif page == "history":
-            self.page_history.update_logs(logs)
+            captures_by_log = {}
+            for log in logs:
+                lid = log.get("log_id")
+                if lid:
+                    captures_by_log[int(lid)] = self.capture_repo.list_for_log(int(lid))
+            self.page_history.update_logs(logs, captures_by_log)
         elif page == "voice":
             commands = self.nlp_repo.recent(user_id=uid, limit=12)
             status_map = {}
@@ -328,6 +352,7 @@ class MainWindow(QMainWindow):
             self._show_page("voice")
         self.page_voice.set_command_text(text)
         mode = "LIVE" if not self.pipeline.automation.dry_run else "dry-run"
+        self.page_voice.set_busy(True)
         self.page_voice.set_status_message(f"● Running ({mode})…")
         # Only minimize when we must interact with on-screen UI
         if not self.pipeline.automation.dry_run and self._needs_desktop_focus(text):
@@ -343,6 +368,7 @@ class MainWindow(QMainWindow):
         self._command_worker.start()
 
     def _on_command_done(self, result: dict) -> None:
+        self.page_voice.set_busy(False)
         if self.isMinimized():
             self.showNormal()
             self.raise_()
@@ -353,6 +379,14 @@ class MainWindow(QMainWindow):
         else:
             self.page_voice.set_status_message(f"✗ {result.get('error') or 'Failed'}")
         self.schedule_refresh()
+
+    def _stop_workers(self) -> None:
+        self.pipeline.request_stop()
+        for worker in (self._command_worker, self._workflow_worker):
+            if worker is not None and worker.isRunning() and hasattr(worker, "stop"):
+                worker.stop()
+        self.page_voice.set_status_message("● Stop requested…")
+        self.page_voice.set_busy(False)
 
     def _listen(self) -> None:
         if self._busy():
@@ -429,6 +463,76 @@ class MainWindow(QMainWindow):
         if QMessageBox.question(self, "Delete", "Delete this workflow?") != QMessageBox.Yes:
             return
         self.workflows.delete_workflow(workflow_id)
+        self.refresh_all()
+
+    def _edit_workflow(self, workflow_id: int) -> None:
+        wf = self.workflows.get_workflow(workflow_id)
+        if not wf:
+            QMessageBox.warning(self, "Edit", "Workflow not found.")
+            return
+        name, ok = QInputDialog.getText(
+            self, "Rename Workflow", "Workflow name:", text=wf.get("name", "")
+        )
+        if not ok or not name.strip():
+            return
+        self.workflows.rename_workflow(workflow_id, name.strip())
+
+        # Optional step editor — one intent per line: intent|element_or_app|value
+        current_tasks = wf.get("tasks") or []
+        lines = []
+        for t in current_tasks:
+            lines.append(
+                f"{t.get('intent','wait')}|{t.get('target_app','')}|{t.get('target_element','')}|{t.get('input_value','')}"
+            )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Edit workflow steps")
+        layout = QVBoxLayout(dlg)
+        layout.addWidget(
+            QLabel("One step per line: intent|target_app|target_element|input_value")
+        )
+        editor = QTextEdit()
+        editor.setPlainText("\n".join(lines) or "open_app|chrome||\nwait|||1")
+        layout.addWidget(editor)
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+        if dlg.exec_() == QDialog.Accepted:
+            tasks = []
+            for i, raw in enumerate(editor.toPlainText().splitlines(), start=1):
+                raw = raw.strip()
+                if not raw or raw.startswith("#"):
+                    continue
+                parts = [p.strip() for p in raw.split("|")]
+                while len(parts) < 4:
+                    parts.append("")
+                intent, app, element, value = parts[:4]
+                params: Dict[str, Any] = {}
+                if intent == "wait":
+                    try:
+                        params["seconds"] = float(value or 1)
+                    except ValueError:
+                        params["seconds"] = 1.0
+                elif intent == "search_web":
+                    params["query"] = value
+                elif intent == "scroll":
+                    params["direction"] = value or "down"
+                    params["amount"] = 3
+                elif intent == "fill_form":
+                    params["field"] = element
+                    params["text"] = value
+                tasks.append(
+                    {
+                        "intent": intent or "wait",
+                        "target_app": app,
+                        "target_element": element,
+                        "input_value": value,
+                        "params": params,
+                        "step_order": i,
+                    }
+                )
+            if tasks:
+                self.workflows.save_tasks(workflow_id, tasks)
         self.refresh_all()
 
     def shutdown(self) -> None:

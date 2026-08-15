@@ -1,20 +1,18 @@
-"""Execution History screen."""
+"""Execution History screen with Screen_capture details."""
 
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from PyQt5.QtWidgets import (
     QWidget,
     QVBoxLayout,
-    QHBoxLayout,
     QLabel,
     QFrame,
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
-    QPushButton,
 )
 
 
@@ -27,7 +25,9 @@ class HistoryPage(QWidget):
 
         title = QLabel("Execution History")
         title.setObjectName("pageTitle")
-        sub = QLabel("Review run details, durations, and error messages from local logs.")
+        sub = QLabel(
+            "Review run details, durations, errors, and diagnostic Screen_capture clips."
+        )
         sub.setObjectName("pageSubtitle")
         root.addWidget(title)
         root.addWidget(sub)
@@ -46,15 +46,21 @@ class HistoryPage(QWidget):
         cl.addWidget(self.table)
         root.addWidget(card, 1)
 
-        self.detail = QLabel("Select a row to inspect details.")
+        self.detail = QLabel("Select a row to inspect details and captures.")
         self.detail.setObjectName("pageSubtitle")
         self.detail.setWordWrap(True)
         root.addWidget(self.detail)
         self.table.itemSelectionChanged.connect(self._on_select)
         self._rows: List[Dict[str, Any]] = []
+        self._captures_by_log: Dict[int, List[Dict[str, Any]]] = {}
 
-    def update_logs(self, rows: List[Dict[str, Any]]) -> None:
+    def update_logs(
+        self,
+        rows: List[Dict[str, Any]],
+        captures_by_log: Optional[Dict[int, List[Dict[str, Any]]]] = None,
+    ) -> None:
         self._rows = rows
+        self._captures_by_log = captures_by_log or {}
         self.table.setRowCount(0)
         for item in rows:
             r = self.table.rowCount()
@@ -84,7 +90,18 @@ class HistoryPage(QWidget):
                 details = json.loads(details)
             except Exception:
                 details = {}
+        log_id = int(item.get("log_id") or 0)
+        captures = self._captures_by_log.get(log_id) or []
+        capture_lines = []
+        for cap in captures[:5]:
+            capture_lines.append(
+                f"• {cap.get('file_path')} "
+                f"({cap.get('width')}×{cap.get('height')}) "
+                f"element={cap.get('element_found') or '—'}"
+            )
+        capture_txt = "\n".join(capture_lines) if capture_lines else "No Screen_capture rows for this log."
         self.detail.setText(
             f"Status: {item.get('status')} | Duration: {item.get('duration_ms')} ms\n"
-            f"Details: {json.dumps(details)[:500]}"
+            f"Details: {json.dumps(details)[:420]}\n"
+            f"Captures:\n{capture_txt}"
         )

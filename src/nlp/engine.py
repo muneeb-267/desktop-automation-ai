@@ -53,9 +53,15 @@ _APP_ALIASES = {
 class NLPEngine:
     """Intent classification & entity extraction (fast-first, spaCy/NLTK optional)."""
 
-    def __init__(self, spacy_model: str = "en_core_web_sm", lazy: bool = True) -> None:
+    def __init__(
+        self,
+        spacy_model: str = "en_core_web_sm",
+        lazy: bool = True,
+        min_confidence: float = 0.45,
+    ) -> None:
         self._spacy_model = spacy_model
         self._lazy = lazy
+        self.min_confidence = float(min_confidence)
         if not lazy:
             self._ensure_spacy()
             self._ensure_nltk()
@@ -143,7 +149,8 @@ class NLPEngine:
         if not raw:
             return ParsedCommand(raw_text=text, intent="unknown", confidence=0.0)
 
-        if re.search(r"\band\b", raw, flags=re.I):
+        # Split on " and " only when it joins commands (not inside quoted text)
+        if re.search(r"\band\b", raw, flags=re.I) and not re.search(r"[\"'].*\band\b.*[\"']", raw, flags=re.I):
             parts = re.split(r"\band\b", raw, flags=re.I)
             steps: List[Dict[str, Any]] = []
             confidences: List[float] = []
@@ -199,6 +206,21 @@ class NLPEngine:
             intent, confidence = self._classify_intent(lemmas, lower)
             entities = self._extract_entities(intent, text, analysis)
 
+        if confidence < self.min_confidence and intent != "unknown":
+            # Keep intent but flag low confidence for UI messaging
+            entities["low_confidence"] = True
+
+        if intent in ("open_app",) and not entities.get("app"):
+            intent, confidence = "unknown", 0.15
+        if intent in ("click_text", "click_button") and not entities.get("element"):
+            intent, confidence = "unknown", 0.15
+        if intent == "fill_form" and not (entities.get("field") or entities.get("text")):
+            intent, confidence = "unknown", 0.15
+        if intent == "type_text" and not entities.get("text"):
+            intent, confidence = "unknown", 0.15
+        if intent == "search_web" and not entities.get("query"):
+            intent, confidence = "unknown", 0.15
+
         return ParsedCommand(
             raw_text=text,
             intent=intent,
@@ -225,6 +247,17 @@ class NLPEngine:
             return "open_app", 0.92
         if "search" in lemmas or re.search(r"^\s*google\s+\S+", lower):
             return "search_web", 0.9
+        # SDS intents: click_button / fill_form (plus click_text alias)
+        if re.search(r"\b(click|tap)\s+(?:on\s+)?(?:the\s+)?button\b", lower):
+            return "click_button", 0.93
+        if re.search(
+            r"\b(fill|complete)\s+(?:(?:the|a)\s+)?form\b",
+            lower,
+        ) or re.search(
+            r"\bfill\s+(?:(?:in|into|the)\s+)?(?P<field>.+?)\s+with\b",
+            lower,
+        ):
+            return "fill_form", 0.92
         if any(w in lemmas for w in ("click", "tap")):
             return "click_text", 0.88
         if any(w in lemmas for w in ("type", "write", "fill")) or (
@@ -240,6 +273,8 @@ class NLPEngine:
         if intent == "open_app":
             m = re.search(r"\b(?:open|launch|start)\s+(.+)$", text, re.I)
             app = (m.group(1) if m else "").strip()
+            # Strip trailing follow-ups already split; keep first app token phrase
+            app = re.split(r"\band\b", app, maxsplit=1, flags=re.I)[0].strip()
             for chunk in analysis.get("noun_chunks") or []:
                 cleaned = re.sub(r"^(open|launch|start)\s+", "", chunk.strip(), flags=re.I).strip()
                 key = cleaned.lower()
@@ -254,9 +289,32 @@ class NLPEngine:
                 entities["app"] = _APP_ALIASES.get(first, first)
             else:
                 entities["app"] = ""
-        elif intent == "click_text":
-            m = re.search(r"\b(?:click|tap)\s+(?:(?:on|the)\s+)?(.+)$", text, re.I)
+        elif intent in ("click_text", "click_button"):
+            m = re.search(
+                r"\b(?:click|tap)\s+(?:(?:on|the)\s+)?(?:button\s+)?(.+)$",
+                text,
+                re.I,
+            )
             entities["element"] = (m.group(1) if m else "").strip(" \"'")
+            if intent == "click_button":
+                entities["element_type"] = "button"
+        elif intent == "fill_form":
+            m = re.search(
+                r"\bfill\s+(?:(?:in|into|the)\s+)?(?P<field>.+?)\s+with\s+[\"']?(?P<text>.+?)[\"']?\s*$",
+                text,
+                re.I,
+            )
+            if m:
+                entities["field"] = m.group("field").strip(" \"'")
+                entities["text"] = (m.group("text") or "").strip(" \"'")
+            else:
+                m2 = re.search(
+                    r"\b(?:fill|complete)\s+(?:(?:the|a)\s+)?form\s+(?:with\s+)?[\"']?(?P<text>.+?)[\"']?\s*$",
+                    text,
+                    re.I,
+                )
+                entities["field"] = ""
+                entities["text"] = (m2.group("text") if m2 else "").strip(" \"'")
         elif intent == "type_text":
             m = re.search(
                 r"\b(?:type|enter|write|fill)\s+(?:(?:in|into|the)\s+(?P<field>.+?)\s+with\s+)?[\"']?(?P<text>.+?)[\"']?\s*$",

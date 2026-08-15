@@ -1,4 +1,4 @@
-"""Voice Command screen."""
+"""Voice Command screen with live console feedback."""
 
 from __future__ import annotations
 
@@ -18,6 +18,8 @@ from PyQt5.QtWidgets import (
     QSlider,
 )
 
+from src.gui.components.logs_widget import LogsWidget
+
 
 class VoiceCommandPage(QWidget):
     execute_requested = pyqtSignal(str)
@@ -25,6 +27,7 @@ class VoiceCommandPage(QWidget):
     clear_requested = pyqtSignal()
     rerun_requested = pyqtSignal(str)
     sensitivity_changed = pyqtSignal(float)
+    stop_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -83,9 +86,14 @@ class VoiceCommandPage(QWidget):
         clear = QPushButton("Clear")
         clear.setObjectName("btnGhost")
         clear.clicked.connect(self._clear)
+        self.btn_stop = QPushButton("Stop")
+        self.btn_stop.setObjectName("btnDanger")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self.stop_requested.emit)
         run = QPushButton("▶  Execute Command")
         run.clicked.connect(self._emit_execute)
         actions.addWidget(clear)
+        actions.addWidget(self.btn_stop)
         actions.addStretch()
         actions.addWidget(run)
 
@@ -102,8 +110,11 @@ class VoiceCommandPage(QWidget):
         recent_title.setStyleSheet("font-weight:800;font-size:14px;")
         left.addWidget(recent_title)
         self.recent = QListWidget()
-        self.recent.setMinimumHeight(180)
+        self.recent.setMinimumHeight(120)
         left.addWidget(self.recent, 1)
+
+        self.console = LogsWidget()
+        left.addWidget(self.console, 1)
 
         # Right assistant panel
         right = QFrame()
@@ -112,15 +123,17 @@ class VoiceCommandPage(QWidget):
         rl = QVBoxLayout(right)
         rl.setContentsMargins(16, 16, 16, 16)
         rl.addWidget(QLabel("AI Assistant"))
-        help_lbl = QLabel("Always ready to help — suggestions based on desktop automation intents.")
+        help_lbl = QLabel(
+            "Try SDS intents: open_app, click_button, fill_form, search, type, scroll, wait."
+        )
         help_lbl.setWordWrap(True)
         help_lbl.setObjectName("pageSubtitle")
         rl.addWidget(help_lbl)
         rl.addWidget(QLabel("Suggested Actions"))
         for label, cmd in (
             ("SYSTEM: Open Chrome", "Open chrome"),
-            ("REPORTING: Open Calculator", "Open calculator"),
-            ("CONTROL: Open Notepad", "Open notepad"),
+            ("CONTROL: Click button Login", "Click button Login"),
+            ("FORM: Fill username with demo", "Fill username with demo"),
             ("PRODUCTIVITY: Search Google", "Search latest AI news"),
         ):
             b = QPushButton(label)
@@ -142,7 +155,7 @@ class VoiceCommandPage(QWidget):
         self.conf_lbl.setWordWrap(True)
         rl.addWidget(self.conf_lbl)
         rl.addStretch()
-        foot = QLabel("System Status: Online\nv0.1.4-alpha")
+        foot = QLabel("System Status: Online\nv0.1.5-alpha")
         foot.setObjectName("footerLabel")
         rl.addWidget(foot)
 
@@ -168,6 +181,10 @@ class VoiceCommandPage(QWidget):
         self.btn_mic.setEnabled(not listening)
         self.btn_mic.setText("…" if listening else "🎙  Speak")
 
+    def set_busy(self, busy: bool) -> None:
+        self.btn_stop.setEnabled(busy)
+        self.btn_mic.setEnabled(not busy)
+
     def set_command_text(self, text: str) -> None:
         self.command.setText(text)
         self.command.setFocus()
@@ -175,6 +192,15 @@ class VoiceCommandPage(QWidget):
 
     def set_status_message(self, message: str) -> None:
         self.status.setText(message)
+        level = "info"
+        low = message.lower()
+        if message.startswith("✓") or "success" in low or "done" in low:
+            level = "success"
+        elif message.startswith("✗") or "error" in low or "fail" in low:
+            level = "error"
+        elif message.startswith("●"):
+            level = "warn"
+        self.console.append(message, level=level)
 
     def focus_command(self) -> None:
         self.command.setFocus()

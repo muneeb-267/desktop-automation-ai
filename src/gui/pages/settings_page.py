@@ -1,4 +1,4 @@
-"""Settings screen."""
+"""Settings screen — safety, theme, voice, cloud STT."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QLineEdit,
     QFormLayout,
+    QComboBox,
 )
 
 
@@ -31,7 +32,9 @@ class SettingsPage(QWidget):
 
         title = QLabel("System Settings")
         title.setObjectName("pageTitle")
-        sub = QLabel("Configure safety, speech sensitivity, and local execution options.")
+        sub = QLabel(
+            "Configure theme, microphone sensitivity, and automation safety protocols."
+        )
         sub.setObjectName("pageSubtitle")
         root.addWidget(title)
         root.addWidget(sub)
@@ -41,6 +44,14 @@ class SettingsPage(QWidget):
         cl = QVBoxLayout(card)
         cl.setContentsMargins(20, 18, 20, 18)
         cl.setSpacing(12)
+
+        theme_row = QHBoxLayout()
+        theme_row.addWidget(QLabel("Theme"))
+        self.theme = QComboBox()
+        self.theme.addItems(["light", "dark"])
+        theme_row.addWidget(self.theme)
+        theme_row.addStretch()
+        cl.addLayout(theme_row)
 
         self.dry_run = QCheckBox("Dry-run (safe mode — no real mouse/keyboard)")
         self.dry_run.setChecked(False)
@@ -54,7 +65,7 @@ class SettingsPage(QWidget):
         self.pause = QDoubleSpinBox()
         self.pause.setRange(0.02, 3.0)
         self.pause.setSingleStep(0.02)
-        self.pause.setValue(0.12)
+        self.pause.setValue(0.04)
         pause_row.addWidget(self.pause)
         pause_row.addStretch()
 
@@ -62,7 +73,7 @@ class SettingsPage(QWidget):
         cl.addWidget(tip)
         cl.addWidget(self.failsafe)
         cl.addLayout(pause_row)
-        cl.addWidget(QLabel("Voice Sensitivity"))
+        cl.addWidget(QLabel("Voice / Microphone Sensitivity"))
         self.voice = QSlider(Qt.Horizontal)
         self.voice.setRange(10, 100)
         self.voice.setValue(70)
@@ -71,7 +82,7 @@ class SettingsPage(QWidget):
         self.voice.valueChanged.connect(lambda v: self.voice_lbl.setText(f"{v/100:.2f}"))
         cl.addWidget(self.voice_lbl)
 
-        cl.addWidget(QLabel("Cloud speech (optional — faster/accurate mic transcription)"))
+        cl.addWidget(QLabel("Cloud speech (optional — Whisper / Gemini)"))
         keys = QFormLayout()
         self.openai_key = QLineEdit()
         self.openai_key.setEchoMode(QLineEdit.Password)
@@ -100,6 +111,9 @@ class SettingsPage(QWidget):
         root.addWidget(chip, 0, Qt.AlignLeft)
 
     def apply_conf(self, conf: Dict[str, Any]) -> None:
+        theme = str(conf.get("theme", "light")).lower()
+        idx = self.theme.findText(theme)
+        self.theme.setCurrentIndex(idx if idx >= 0 else 0)
         self.dry_run.setChecked(str(conf.get("dry_run", "0")) in ("1", "true", "True"))
         self.failsafe.setChecked(str(conf.get("failsafe", "1")) in ("1", "true", "True"))
         self.pause.setValue(float(conf.get("pause_seconds", 0.04)))
@@ -112,6 +126,7 @@ class SettingsPage(QWidget):
 
     def _save(self) -> None:
         payload = {
+            "theme": self.theme.currentText(),
             "dry_run": "1" if self.dry_run.isChecked() else "0",
             "failsafe": "1" if self.failsafe.isChecked() else "0",
             "pause_seconds": str(self.pause.value()),
