@@ -42,6 +42,6 @@ copy /Y "%LAUNCHER%" "%USERPROFILE%\Desktop\Automate AI.bat" >nul 2>&1
 
 echo.
 echo Install complete.
-echo   Login: demo / demo123
+echo   Create your account in the app with Sign Up Now.
 echo   Double-click "Automate AI" on your Desktop, or "Run Automate AI.bat" in the project folder.
 pause

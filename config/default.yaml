@@ -57,7 +57,9 @@ automation:
   app_launch_wait: 0.45
 
 auth:
-  default_username: "demo"
-  default_password: "demo123"
-  default_email: "demo@automate.ai"
-  default_display_name: "Demo User"
+  # Real accounts via Sign Up — no demo user is created by default
+  create_demo_user: false
+  default_username: ""
+  default_password: ""
+  default_email: ""
+  default_display_name: ""

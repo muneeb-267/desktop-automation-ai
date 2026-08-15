@@ -52,7 +52,7 @@ ensure_runtime_dirs(cfg)
 ensure_template_assets(resolve_path(cfg["paths"]["templates_dir"]))
 db = get_database(cfg)
 print("DB ready:", db.db_path)
-print("Login: demo / demo123")
+print("Create your account in the app with Sign Up Now")
 PY
 
 # Launch scripts
@@ -103,6 +103,6 @@ fi
 
 echo ""
 echo "Install complete."
-echo "  Login:  demo / demo123"
+echo "  Create your account in the app (Sign Up Now)."
 echo "  Run:    ./run_automate_ai.sh"
 echo "  Or double-click the Automate AI icon on your Desktop."

@@ -17,6 +17,64 @@ def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
+_SAMPLE_WORKFLOWS = [
+    (
+        "Morning Study Setup",
+        "Open notes and prepare study apps",
+        "voice",
+        [
+            (1, "open_app", "notepad", "", "", "{}"),
+            (2, "wait", "", "", "1", '{"seconds":1}'),
+            (3, "type_text", "notepad", "", "Morning study checklist", "{}"),
+        ],
+    ),
+    (
+        "Open Chrome & Gmail",
+        "Launch browser and focus inbox workflow",
+        "manual",
+        [
+            (1, "open_app", "chrome", "", "", "{}"),
+            (2, "wait", "", "", "1", '{"seconds":1}'),
+            (3, "search_web", "chrome", "", "gmail", '{"query":"gmail"}'),
+        ],
+    ),
+    (
+        "University Portal Login",
+        "Open browser for portal login assist",
+        "manual",
+        [
+            (1, "open_app", "chrome", "", "", "{}"),
+            (2, "wait", "", "", "1", '{"seconds":1}'),
+        ],
+    ),
+    (
+        "Open Notepad Demo",
+        "Sample multi-step workflow",
+        "manual",
+        [
+            (1, "open_app", "notepad", "", "", "{}"),
+            (2, "wait", "", "", "1", '{"seconds":1}'),
+            (3, "type_text", "notepad", "", "Hello from Automate AI", "{}"),
+        ],
+    ),
+    (
+        "Open File Explorer",
+        "Launch file manager",
+        "manual",
+        [(1, "open_app", "explorer", "", "", "{}")],
+    ),
+    (
+        "Daily Research Setup",
+        "Browser + search for research",
+        "voice",
+        [
+            (1, "open_app", "chrome", "", "", "{}"),
+            (2, "search_web", "chrome", "", "latest research papers", "{}"),
+        ],
+    ),
+]
+
+
 class Database:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
@@ -44,98 +102,36 @@ class Database:
         self._conn.executescript(sql)
         self._conn.commit()
 
-    def seed_defaults(self, config: Dict[str, Any]) -> None:
-        auth = config.get("auth", {})
-        username = auth.get("default_username", "demo")
-        password = auth.get("default_password", "demo123")
-        email = auth.get("default_email", "demo@automate.ai")
-        existing = self.fetchone("SELECT user_id FROM User WHERE username = ?", (username,))
-        if existing:
-            return
-
-        cur = self.execute(
-            """
-            INSERT INTO User (username, email, password, is_active)
-            VALUES (?, ?, ?, 1)
-            """,
-            (username, email, hash_password(password)),
-        )
-        user_id = int(cur.lastrowid)
-
+    def seed_user_workspace(self, user_id: int, config: Optional[Dict[str, Any]] = None) -> None:
+        """Create default settings + starter workflows for a real user account."""
+        cfg = config or {}
         defaults = {
-            "theme": config.get("ui", {}).get("theme", "light"),
-            "mic_sensitivity": str(config.get("speech", {}).get("mic_sensitivity", 0.7)),
-            "dry_run": "1" if config.get("automation", {}).get("dry_run", False) else "0",
-            "failsafe": "1" if config.get("automation", {}).get("failsafe", True) else "0",
-            "pause_seconds": str(config.get("automation", {}).get("pause_seconds", 0.12)),
-            "voice_sensitivity": str(config.get("speech", {}).get("mic_sensitivity", 0.8)),
-            "mic_sensitivity": str(config.get("speech", {}).get("mic_sensitivity", 0.8)),
+            "theme": cfg.get("ui", {}).get("theme", "light"),
+            "dry_run": "1" if cfg.get("automation", {}).get("dry_run", False) else "0",
+            "failsafe": "1" if cfg.get("automation", {}).get("failsafe", True) else "0",
+            "pause_seconds": str(cfg.get("automation", {}).get("pause_seconds", 0.04)),
+            "voice_sensitivity": str(cfg.get("speech", {}).get("mic_sensitivity", 0.9)),
+            "mic_sensitivity": str(cfg.get("speech", {}).get("mic_sensitivity", 0.9)),
             "recognition_confidence": "0.85",
         }
         for key, value in defaults.items():
             self.execute(
-                "INSERT INTO User_Conf (conf_key, conf_value, user_id) VALUES (?, ?, ?)",
+                """
+                INSERT INTO User_Conf (conf_key, conf_value, user_id)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id, conf_key) DO UPDATE SET conf_value = excluded.conf_value
+                """,
                 (key, value, user_id),
             )
 
-        sample_workflows = [
-            (
-                "Morning Study Setup",
-                "Open notes and prepare study apps",
-                "voice",
-                [
-                    (1, "open_app", "notepad", "", "", "{}"),
-                    (2, "wait", "", "", "1", '{"seconds":1}'),
-                    (3, "type_text", "notepad", "", "Morning study checklist", "{}"),
-                ],
-            ),
-            (
-                "Open Chrome & Gmail",
-                "Launch browser and focus inbox workflow",
-                "manual",
-                [
-                    (1, "open_app", "chrome", "", "", "{}"),
-                    (2, "wait", "", "", "1", '{"seconds":1}'),
-                    (3, "search_web", "chrome", "", "gmail", '{"query":"gmail"}'),
-                ],
-            ),
-            (
-                "University Portal Login",
-                "Open browser for portal login assist",
-                "manual",
-                [
-                    (1, "open_app", "chrome", "", "", "{}"),
-                    (2, "wait", "", "", "1", '{"seconds":1}'),
-                ],
-            ),
-            (
-                "Open Notepad Demo",
-                "Sample multi-step workflow",
-                "manual",
-                [
-                    (1, "open_app", "notepad", "", "", "{}"),
-                    (2, "wait", "", "", "1", '{"seconds":1}'),
-                    (3, "type_text", "notepad", "", "Hello from Automate AI", "{}"),
-                ],
-            ),
-            (
-                "Open File Explorer",
-                "Launch file manager",
-                "manual",
-                [(1, "open_app", "explorer", "", "", "{}")],
-            ),
-            (
-                "Daily Research Setup",
-                "Browser + search for research",
-                "voice",
-                [
-                    (1, "open_app", "chrome", "", "", "{}"),
-                    (2, "search_web", "chrome", "", "latest research papers", "{}"),
-                ],
-            ),
-        ]
+        existing = self.fetchone(
+            "SELECT COUNT(*) AS c FROM Workflow WHERE user_id = ? AND is_active = 1",
+            (user_id,),
+        )
+        if existing and int(existing["c"]) > 0:
+            return
 
-        for name, desc, trigger, steps in sample_workflows:
+        for name, desc, trigger, steps in _SAMPLE_WORKFLOWS:
             wcur = self.execute(
                 """
                 INSERT INTO Workflow (name, description, trigger_type, is_active, user_id)
@@ -163,6 +159,26 @@ class Database:
                     (wid, order, intent, app, element, value, params),
                 )
 
+    def seed_defaults(self, config: Dict[str, Any]) -> None:
+        """Optionally create a legacy demo user (off by default)."""
+        auth = config.get("auth", {})
+        if not bool(auth.get("create_demo_user", False)):
+            return
+        username = auth.get("default_username", "demo")
+        password = auth.get("default_password", "demo123")
+        email = auth.get("default_email", "demo@automate.ai")
+        existing = self.fetchone("SELECT user_id FROM User WHERE username = ?", (username,))
+        if existing:
+            return
+        cur = self.execute(
+            """
+            INSERT INTO User (username, email, password, is_active)
+            VALUES (?, ?, ?, 1)
+            """,
+            (username, email, hash_password(password)),
+        )
+        self.seed_user_workspace(int(cur.lastrowid), config)
+
 
 def get_database(config: Optional[Dict[str, Any]] = None) -> Database:
     global _db_singleton
@@ -187,27 +203,6 @@ def get_database(config: Optional[Dict[str, Any]] = None) -> Database:
     db = Database(db_path)
     db.initialize_schema()
     db.seed_defaults(cfg)
-    # Keep demo automation mode in sync with config (live by default)
-    demo = db.fetchone("SELECT user_id FROM User WHERE username = ?", ("demo",))
-    if demo:
-        dry = "1" if cfg.get("automation", {}).get("dry_run", False) else "0"
-        pause = str(cfg.get("automation", {}).get("pause_seconds", 0.12))
-        db.execute(
-            """
-            INSERT INTO User_Conf (conf_key, conf_value, user_id)
-            VALUES ('dry_run', ?, ?)
-            ON CONFLICT(user_id, conf_key) DO UPDATE SET conf_value = excluded.conf_value
-            """,
-            (dry, int(demo["user_id"])),
-        )
-        db.execute(
-            """
-            INSERT INTO User_Conf (conf_key, conf_value, user_id)
-            VALUES ('pause_seconds', ?, ?)
-            ON CONFLICT(user_id, conf_key) DO UPDATE SET conf_value = excluded.conf_value
-            """,
-            (pause, int(demo["user_id"])),
-        )
     _db_singleton = db
     return db
 

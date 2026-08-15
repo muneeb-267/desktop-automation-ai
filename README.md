@@ -47,9 +47,13 @@ chmod +x scripts/install_desktop.sh run_automate_ai.sh
 ```
 Then double-click **Automate AI** on your Desktop (or run `./run_automate_ai.sh`).
 
-### Default login
-- **Username:** `demo`
-- **Password:** `demo123`
+### Create your account
+1. Open Automate AI
+2. Enter **your** email/username and password
+3. Click **Sign Up Now** (you’re signed in automatically)
+4. Next time, use **Sign In** with the same credentials
+
+There is **no demo account** by default.
 
 ### Manual setup (optional)
 
@@ -105,18 +109,19 @@ Navigation flow: Login → Dashboard → Voice / History / Workflows / Settings 
 
 ## How to use
 
-1. Sign in with `demo` / `demo123`.
-2. Type a command and press **Run command**, or click **Mic** and speak.
-3. Keep **Dry-run (safe mode)** checked while practicing.
-4. Use the **Workflows** tab to save / replay multi-step macros.
-5. Check the **Activity log** and **Screen recognition** panel for feedback.
+1. **Sign Up Now** with your own username/email and password (or Sign In later).
+2. Type a command and press **Execute Command**, or click **Speak**.
+3. Leave dry-run OFF in Settings for real mouse/keyboard/browser actions.
+4. Use **Workflow Management** to save / edit / replay multi-step macros.
+5. Check the live **Activity log** and **Execution History** (including Screen_capture clips).
 
 ### Example commands
 
 - `Open notepad`
 - `Open Chrome and search weather`
 - `Type hello from my project`
-- `Click Login`
+- `Click button Login`
+- `Fill username with alice`
 - `Scroll down 5`
 - `Wait 2 seconds`
 - `Run workflow Open Notepad Demo`

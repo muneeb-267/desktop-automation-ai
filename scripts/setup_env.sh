@@ -55,7 +55,7 @@ ensure_runtime_dirs(cfg)
 ensure_template_assets(resolve_path(cfg.get("paths", {}).get("templates_dir", "assets/templates")))
 db = get_database(cfg)
 print("Database ready at", db.db_path)
-print("Default login: demo / demo123")
+print("Create your account in the app with Sign Up Now")
 PY
 
 echo ""

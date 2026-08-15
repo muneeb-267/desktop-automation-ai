@@ -2,6 +2,7 @@ from pathlib import Path
 
 from src.config import load_config
 from src.db.database import Database, reset_database_singleton
+from src.db.repositories import UserRepository
 from src.pipeline import AutomationPipeline
 from src.workflows.service import WorkflowService
 
@@ -21,12 +22,12 @@ def test_text_command_dry_run(tmp_path: Path):
     db.initialize_schema()
     db.seed_defaults(cfg)
 
+    users = UserRepository(db)
+    user_id = users.create("tester", "tester@example.com", "secret123")
+    db.seed_user_workspace(user_id, cfg)
+
     pipeline = AutomationPipeline(cfg, db)
     pipeline.automation.set_dry_run(True)
-
-    # Authenticate demo user id
-    row = db.fetchone("SELECT user_id FROM User WHERE username = ?", ("demo",))
-    user_id = int(row["user_id"])
 
     result = pipeline.run_text_command("Open notepad and type hello", user_id=user_id)
     assert result["ok"] is True

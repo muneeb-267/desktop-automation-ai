@@ -13,17 +13,21 @@ from src.db.repositories import (
 )
 
 
-def test_schema_seed_and_crud(tmp_path: Path):
+def test_schema_signup_workspace_and_crud(tmp_path: Path):
     reset_database_singleton()
     cfg = load_config()
     db = Database(tmp_path / "test.db")
     db.initialize_schema()
-    db.seed_defaults(cfg)
+    db.seed_defaults(cfg)  # create_demo_user false → no demo user
 
     users = UserRepository(db)
-    user = users.authenticate("demo", "demo123")
+    assert users.authenticate("demo", "demo123") is None
+
+    uid = users.create("muneeb", "muneeb@example.com", "secret123")
+    db.seed_user_workspace(uid, cfg)
+    user = users.authenticate("muneeb", "secret123")
     assert user is not None
-    assert user["password"] == hash_password("demo123")
+    assert user["password"] == hash_password("secret123")
     assert "email" in user
 
     conf = UserConfRepository(db).get_map(user["user_id"])
@@ -44,7 +48,9 @@ def test_schema_seed_and_crud(tmp_path: Path):
     log_id = ExecutionLogRepository(db).create(
         "Success", 12, details={"ok": True}, user_id=user["user_id"], command_id=cmd_id
     )
-    ScreenCaptureRepository(db).create("/tmp/fake.png", log_id=log_id, width=100, height=50, element_found="Login")
+    ScreenCaptureRepository(db).create(
+        "/tmp/fake.png", log_id=log_id, width=100, height=50, element_found="Login"
+    )
     assert ExecutionLogRepository(db).recent(user_id=user["user_id"], limit=5)
     db.close()
     reset_database_singleton()

@@ -118,7 +118,6 @@ class LoginDialog(QDialog):
         email_lbl = QLabel("Email / Username")
         self.email = QLineEdit()
         self.email.setPlaceholderText("name@company.com")
-        self.email.setText("demo")
 
         pass_row = QHBoxLayout()
         pass_lbl = QLabel("Password")
@@ -130,15 +129,14 @@ class LoginDialog(QDialog):
 
         self.password = QLineEdit()
         self.password.setEchoMode(QLineEdit.Password)
-        self.password.setText("demo123")
-        self.password.setPlaceholderText("••••••••")
+        self.password.setPlaceholderText("Create or enter your password")
         self.password.returnPressed.connect(self._try_login)
 
         self.keep = QCheckBox("Keep me signed in for 30 days")
         self.btn_login = QPushButton("Sign In  →")
         self.btn_login.clicked.connect(self._try_login)
 
-        divider = QLabel("NEW TO AUTOMATE AI?")
+        divider = QLabel("NEW HERE? CREATE YOUR ACCOUNT")
         divider.setAlignment(Qt.AlignCenter)
         divider.setObjectName("loginSubtitle")
         self.btn_signup = QPushButton("Sign Up Now")
@@ -180,22 +178,37 @@ class LoginDialog(QDialog):
         email = self.email.text().strip()
         password = self.password.text()
         if not email or not password:
-            QMessageBox.information(self, "Sign up", "Enter an email/username and password first.")
+            QMessageBox.information(
+                self,
+                "Sign up",
+                "Enter your email/username and a password, then click Sign Up Now.",
+            )
+            return
+        if len(password) < 6:
+            QMessageBox.warning(self, "Sign up", "Password must be at least 6 characters.")
             return
         username = email.split("@")[0] if "@" in email else email
         try:
-            uid = self.users.create(username=username, email=email if "@" in email else f"{email}@automate.ai", password=password)
-            if self.conf_repo:
-                for key, value in {
-                    "theme": "light",
-                    "dry_run": "1",
-                    "failsafe": "1",
-                    "mic_sensitivity": "0.7",
-                    "pause_seconds": "0.35",
-                    "voice_sensitivity": "0.7",
-                    "recognition_confidence": "0.85",
-                }.items():
-                    self.conf_repo.set(uid, key, value)
-            QMessageBox.information(self, "Account created", "Account created. Click Sign In.")
+            uid = self.users.create(
+                username=username,
+                email=email if "@" in email else f"{email}@automate.ai",
+                password=password,
+            )
+            # Seed personal settings + starter workflows (live automation by default)
+            from src.config import load_config
+            from src.db.database import get_database
+
+            db = get_database()
+            db.seed_user_workspace(uid, load_config())
+            user = self.users.get_by_id(uid)
+            if not user:
+                raise RuntimeError("Account created but could not load profile.")
+            self.user = user
+            QMessageBox.information(
+                self,
+                "Welcome",
+                f"Account ready for {username}. You’re signed in.",
+            )
+            self.accept()
         except Exception as exc:
             QMessageBox.warning(self, "Sign up failed", str(exc))
