@@ -4,8 +4,16 @@ HOW TO PUT AUTOMATE AI ON YOUR WINDOWS DESKTOP
 What you saw earlier was the Cloud Agent remote Linux desktop — NOT this
 Windows PC. The app must be installed ONCE on your Windows computer.
 
-FASTEST WAY (ZIP download)
---------------------------
+IF YOU ALREADY INSTALLED IT — UPDATE THE FILES
+----------------------------------------------
+1. Open your existing Automate AI project folder
+2. Double-click:  UPDATE_ON_YOUR_WINDOWS_PC.bat
+3. Wait until it finishes — it pulls the latest code onto THIS PC
+4. The app restarts with file/folder open + fixed UI
+
+
+FASTEST WAY (ZIP download — first install)
+------------------------------------------
 1. Open Chrome and go to:
    https://github.com/muneeb-267/desktop-automation-ai/archive/refs/heads/cursor/desktop-automation-ai-a8ac.zip
 
