@@ -32,22 +32,27 @@ PY
 
 echo "==> Optional system packages (Linux)"
 if command -v apt-get >/dev/null 2>&1; then
-  echo "Recommended:"
-  echo "  sudo apt-get update"
-  echo "  sudo apt-get install -y tesseract-ocr libportaudio2 portaudio19-dev python3-tk scrot \\"
-  echo "    libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \\"
-  echo "    libxcb-render-util0 libxcb-xinerama0 libxcb-cursor0"
+  if command -v sudo >/dev/null 2>&1; then
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+      python3-tk tesseract-ocr libportaudio2 portaudio19-dev scrot \
+      libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+      libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-cursor0 \
+      || echo "WARNING: apt install had issues — try manually"
+  else
+    echo "Recommended:"
+    echo "  sudo apt-get install -y python3-tk tesseract-ocr libportaudio2 portaudio19-dev scrot"
+  fi
 fi
 
 echo "==> Creating data folders"
 mkdir -p data/captures data/logs assets/templates
-
-echo "==> Initializing SQLite database (8 SDS tables + demo user)"
 python - <<'PY'
-from src.config import load_config, ensure_runtime_dirs
+from src.config import load_config, ensure_runtime_dirs, resolve_path
 from src.db.database import get_database
+from src.vision.templates_seed import ensure_template_assets
 cfg = load_config()
 ensure_runtime_dirs(cfg)
+ensure_template_assets(resolve_path(cfg.get("paths", {}).get("templates_dir", "assets/templates")))
 db = get_database(cfg)
 print("Database ready at", db.db_path)
 print("Default login: demo / demo123")
@@ -56,4 +61,5 @@ PY
 echo ""
 echo "Setup complete."
 echo "Activate:  source .venv/bin/activate"
-echo "Run app:   python main.py"
+echo "Run app:   python main.py   OR   ./run_automate_ai.sh"
+echo "Desktop:   ./scripts/install_desktop.sh"

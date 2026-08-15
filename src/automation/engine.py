@@ -23,14 +23,41 @@ class AutomationEngine:
         self.failsafe = bool(auto.get("failsafe", True))
         self._history: List[Dict[str, Any]] = []
         self._pyautogui = None
+        self._pyautogui_error = ""
+        self._pyautogui = self._load_pyautogui()
+
+    def _load_pyautogui(self):
+        """Import PyAutoGUI; tolerate missing tkinter/MouseInfo on some Linux setups."""
         try:
             import pyautogui
 
             pyautogui.FAILSAFE = self.failsafe
             pyautogui.PAUSE = self.pause_seconds
-            self._pyautogui = pyautogui
-        except (Exception, SystemExit):
-            self._pyautogui = None
+            return pyautogui
+        except BaseException as first_exc:
+            self._pyautogui_error = str(first_exc)
+            # MouseInfo requires tkinter on Linux; stub it and retry once
+            try:
+                import sys
+                import types
+
+                if "mouseinfo" not in sys.modules:
+                    stub = types.ModuleType("mouseinfo")
+                    stub.MouseInfoWindow = object  # type: ignore[attr-defined]
+                    sys.modules["mouseinfo"] = stub
+                import pyautogui
+
+                pyautogui.FAILSAFE = self.failsafe
+                pyautogui.PAUSE = self.pause_seconds
+                self._pyautogui_error = ""
+                return pyautogui
+            except BaseException as second_exc:
+                self._pyautogui_error = str(second_exc)
+                return None
+
+    @property
+    def mouse_ready(self) -> bool:
+        return self._pyautogui is not None
 
     def set_dry_run(self, enabled: bool) -> None:
         self.dry_run = enabled

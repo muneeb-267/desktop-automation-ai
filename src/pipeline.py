@@ -57,13 +57,27 @@ class AutomationPipeline:
             self.automation._pyautogui.PAUSE = self.automation.pause_seconds
             self.automation._pyautogui.FAILSAFE = self.automation.failsafe
 
-    def _ensure_live_automation(self) -> None:
+    def _ensure_live_automation(self, intents: Optional[List[str]] = None) -> None:
+        """Require PyAutoGUI only for mouse/keyboard steps (not browser URL launches)."""
         if self.automation.dry_run:
             return
-        if self.automation._pyautogui is None:
+        needs_mouse = {
+            "click_text",
+            "click_button",
+            "fill_form",
+            "type_text",
+            "press_key",
+            "scroll",
+        }
+        required = any(i in needs_mouse for i in (intents or []))
+        if not required:
+            return
+        if not self.automation.mouse_ready:
+            detail = getattr(self.automation, "_pyautogui_error", "") or "import failed"
             raise RuntimeError(
-                "PyAutoGUI is unavailable — cannot run live mouse/keyboard automation. "
-                "Enable dry-run in Settings or install PyAutoGUI."
+                "PyAutoGUI is unavailable for mouse/keyboard actions "
+                f"({detail}). On Linux install: sudo apt-get install -y python3-tk. "
+                "Or enable dry-run in Settings."
             )
 
     def run_text_command(
@@ -142,7 +156,6 @@ class AutomationPipeline:
         error: Optional[str] = None
 
         try:
-            self._ensure_live_automation()
             steps = parsed.steps or [
                 {
                     "intent": parsed.intent,
@@ -150,6 +163,7 @@ class AutomationPipeline:
                     "confidence": parsed.confidence,
                 }
             ]
+            self._ensure_live_automation([str(s.get("intent") or "") for s in steps])
             for step in steps:
                 if self._stop_requested:
                     error = "Stopped by user"
@@ -226,7 +240,9 @@ class AutomationPipeline:
         captures: List[str] = []
         error: Optional[str] = None
         try:
-            self._ensure_live_automation()
+            self._ensure_live_automation(
+                [str((WorkflowService.task_to_step(t) or {}).get("intent") or "") for t in wf.get("tasks", [])]
+            )
             for task in wf.get("tasks", []):
                 if self._stop_requested:
                     error = "Stopped by user"

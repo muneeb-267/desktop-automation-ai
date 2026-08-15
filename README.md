@@ -33,10 +33,27 @@ End-to-end flow is wired in [`src/pipeline.py`](src/pipeline.py) and started fro
 
 ---
 
-## Quick start
+## Quick start — put it on your Desktop
+
+### Windows
+1. Copy/clone this project folder to your PC.
+2. Double-click `scripts\install_desktop.bat`
+3. Double-click **Automate AI** on your Desktop (or `Run Automate AI.bat`)
 
 ### Linux / macOS
+```bash
+chmod +x scripts/install_desktop.sh run_automate_ai.sh
+./scripts/install_desktop.sh
+```
+Then double-click **Automate AI** on your Desktop (or run `./run_automate_ai.sh`).
 
+### Default login
+- **Username:** `demo`
+- **Password:** `demo123`
+
+### Manual setup (optional)
+
+#### Linux / macOS
 ```bash
 chmod +x scripts/setup_env.sh
 ./scripts/setup_env.sh
@@ -44,8 +61,7 @@ source .venv/bin/activate
 python main.py
 ```
 
-### Windows (PowerShell)
-
+#### Windows (PowerShell)
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -54,11 +70,6 @@ pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 python main.py
 ```
-
-### Default login
-
-- **Username:** `demo`
-- **Password:** `demo123`
 
 ---
 
