@@ -12,9 +12,12 @@ mss>=9.0.0
 pyautogui>=0.9.54
 pyperclip>=1.8.0
 
-# Speech Recognition (Microphone API + STT)
+# Speech Recognition (Chrome Web Speech + Microphone API + STT)
 SpeechRecognition>=3.10.0
 PyAudio>=0.2.13
+# Optional cloud STT (used when OPENAI_API_KEY / GEMINI_API_KEY are set)
+openai>=1.40.0
+google-genai>=0.3.0
 
 # NLP Engine (spaCy / NLTK)
 spacy>=3.7.0

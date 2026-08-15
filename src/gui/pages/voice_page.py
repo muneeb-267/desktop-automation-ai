@@ -54,24 +54,28 @@ class VoiceCommandPage(QWidget):
         pl = QVBoxLayout(panel)
         pl.setContentsMargins(28, 28, 28, 24)
         pl.setSpacing(14)
-        self.status = QLabel("✓ Ready to Listen")
+        self.status = QLabel("✓ Ready — click Mic (no USB mic needed)")
         self.status.setStyleSheet("font-weight:800;font-size:15px;")
-        hint = QLabel("Click Mic → wait for “Speak now…” → talk clearly. Or type below.")
+        hint = QLabel(
+            "Mic opens Chrome voice (laptop mic OK). Or type below and press Enter — same speed."
+        )
         hint.setObjectName("pageSubtitle")
         hint.setAlignment(Qt.AlignCenter)
+        hint.setWordWrap(True)
         self.status.setAlignment(Qt.AlignCenter)
 
         mic_row = QHBoxLayout()
         mic_row.addStretch()
-        self.btn_mic = QPushButton("🎙")
+        self.btn_mic = QPushButton("🎙  Speak")
         self.btn_mic.setObjectName("btnMicBig")
+        self.btn_mic.setToolTip("Chrome voice recognition — no USB microphone required")
         self.btn_mic.clicked.connect(self.mic_requested.emit)
         mic_row.addWidget(self.btn_mic)
         mic_row.addStretch()
 
         self.command = QLineEdit()
         self.command.setPlaceholderText(
-            "> Open Chrome browser and search for 'latest AI trends'..."
+            "> Open Chrome and search for latest AI trends…"
         )
         self.command.returnPressed.connect(self._emit_execute)
 
@@ -133,11 +137,12 @@ class VoiceCommandPage(QWidget):
             lambda v: self.sensitivity_changed.emit(v / 100.0)
         )
         rl.addWidget(self.sensitivity)
-        self.conf_lbl = QLabel("Recognition Confidence: 85%")
+        self.conf_lbl = QLabel("Engine: Chrome voice · Whisper/Gemini if keyed")
         self.conf_lbl.setObjectName("pageSubtitle")
+        self.conf_lbl.setWordWrap(True)
         rl.addWidget(self.conf_lbl)
         rl.addStretch()
-        foot = QLabel("System Status: Online\nv0.1.2-alpha")
+        foot = QLabel("System Status: Online\nv0.1.4-alpha")
         foot.setObjectName("footerLabel")
         rl.addWidget(foot)
 
@@ -157,14 +162,26 @@ class VoiceCommandPage(QWidget):
         self.command.setText(cmd)
 
     def set_listening(self, listening: bool) -> None:
-        self.status.setText("● Listening…" if listening else "✓ Ready to Listen")
+        self.status.setText(
+            "● Listening… speak now" if listening else "✓ Ready — click Mic (no USB mic needed)"
+        )
         self.btn_mic.setEnabled(not listening)
+        self.btn_mic.setText("…" if listening else "🎙  Speak")
 
     def set_command_text(self, text: str) -> None:
         self.command.setText(text)
+        self.command.setFocus()
+        self.command.selectAll()
 
     def set_status_message(self, message: str) -> None:
         self.status.setText(message)
+
+    def focus_command(self) -> None:
+        self.command.setFocus()
+        self.command.selectAll()
+
+    def set_engine_label(self, text: str) -> None:
+        self.conf_lbl.setText(text)
 
     def update_recent(self, commands: List[Dict[str, Any]], logs_by_cmd: Dict[int, str] | None = None) -> None:
         self.recent.clear()

@@ -297,7 +297,7 @@ class AutomationPipeline:
             result["boxes"] = detection.boxes
             if not detection.found:
                 # Retry once after a short wait (UI may still be loading)
-                self.automation.wait(0.35)
+                self.automation.wait(0.2)
                 frame = self.vision.capture_screen()
                 detection = self.vision.locate(element, frame=frame)
                 result["detection_retry"] = {

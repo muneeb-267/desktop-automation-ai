@@ -116,11 +116,16 @@ QPushButton#btnNav[active="true"] {
 QPushButton#btnMicBig {
     background: #111827;
     border-radius: 48px;
-    min-width: 96px;
+    min-width: 120px;
     min-height: 96px;
-    max-width: 96px;
+    max-width: 160px;
     max-height: 96px;
-    font-size: 28px;
+    font-size: 18px;
+    font-weight: 800;
+    padding: 8px 14px;
+}
+QPushButton#btnMicBig:disabled {
+    background: #6b7280;
 }
 QPushButton#btnDanger {
     background: #b42318;

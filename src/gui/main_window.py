@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from PyQt5.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve, QTimer
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -17,6 +18,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QFrame,
     QApplication,
+    QShortcut,
 )
 
 from src.db.repositories import (
@@ -68,6 +70,8 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._wire()
         self._load_settings()
+        # Fast voice hotkey
+        QShortcut(QKeySequence("Ctrl+Space"), self, activated=self._listen)
         self._show_page("dashboard")
         self.schedule_refresh(immediate=True)
 
@@ -201,18 +205,46 @@ class MainWindow(QMainWindow):
 
     def _load_settings(self) -> None:
         conf = self.conf_repo.get_map(self.user["user_id"])
+        # Merge optional cloud keys from config file defaults
+        speech_cfg = self.config.get("speech", {})
+        if not conf.get("openai_api_key") and speech_cfg.get("openai_api_key"):
+            conf = {**conf, "openai_api_key": speech_cfg.get("openai_api_key")}
+        if not conf.get("gemini_api_key") and speech_cfg.get("gemini_api_key"):
+            conf = {**conf, "gemini_api_key": speech_cfg.get("gemini_api_key")}
         self.page_settings.apply_conf(conf)
         self.pipeline.apply_user_settings(self.user["user_id"])
-        sens = float(conf.get("voice_sensitivity", conf.get("mic_sensitivity", 0.8)))
+        sens = float(conf.get("voice_sensitivity", conf.get("mic_sensitivity", 0.9)))
         self.page_voice.sensitivity.blockSignals(True)
         self.page_voice.sensitivity.setValue(int(sens * 100))
         self.page_voice.sensitivity.blockSignals(False)
         self.speech.set_sensitivity(sens)
+        self.speech.set_api_keys(
+            openai_key=str(conf.get("openai_api_key") or speech_cfg.get("openai_api_key") or ""),
+            gemini_key=str(conf.get("gemini_api_key") or speech_cfg.get("gemini_api_key") or ""),
+        )
+        cloud = self.speech.cloud_status()
+        bits = ["Chrome voice"]
+        if cloud["openai"]:
+            bits.append("Whisper")
+        if cloud["gemini"]:
+            bits.append("Gemini")
+        self.page_voice.set_engine_label("Engine: " + " · ".join(bits))
 
     def _save_settings(self, values: dict) -> None:
         self.conf_repo.update_many(self.user["user_id"], values)
         self.pipeline.apply_user_settings(self.user["user_id"])
-        self.speech.set_sensitivity(float(values.get("mic_sensitivity", 0.8)))
+        self.speech.set_sensitivity(float(values.get("mic_sensitivity", 0.9)))
+        self.speech.set_api_keys(
+            openai_key=str(values.get("openai_api_key") or ""),
+            gemini_key=str(values.get("gemini_api_key") or ""),
+        )
+        cloud = self.speech.cloud_status()
+        bits = ["Chrome voice"]
+        if cloud["openai"]:
+            bits.append("Whisper")
+        if cloud["gemini"]:
+            bits.append("Gemini")
+        self.page_voice.set_engine_label("Engine: " + " · ".join(bits))
         QMessageBox.information(self, "Settings", "Settings applied.")
         self._show_page("dashboard")
 
@@ -325,15 +357,9 @@ class MainWindow(QMainWindow):
     def _listen(self) -> None:
         if self._busy():
             return
-        if not self.speech.available:
-            QMessageBox.information(
-                self,
-                "Microphone",
-                "SpeechRecognition/PyAudio Microphone API is not available. Type a command instead.",
-            )
-            return
+        self._show_page("voice")
         self.page_voice.set_listening(True)
-        self.page_voice.set_status_message("● Starting microphone…")
+        self.page_voice.set_status_message("● Starting Chrome voice…")
         self._speech_worker = SpeechWorker(self.speech, parent=self)
         self._speech_worker.status.connect(self.page_voice.set_status_message)
         self._speech_worker.failed.connect(self._on_speech_fail)
@@ -343,13 +369,15 @@ class MainWindow(QMainWindow):
     def _on_speech_fail(self, message: str) -> None:
         self.page_voice.set_listening(False)
         self.page_voice.set_status_message(f"✗ {message}")
-        # Soft status only — avoid blocking modal popups during voice use
-        self.statusBar().showMessage(message, 5000) if self.statusBar() else None
+        self.page_voice.focus_command()
+        if self.statusBar():
+            self.statusBar().showMessage(message, 5000)
 
     def _on_transcribed(self, text: str) -> None:
         self.page_voice.set_listening(False)
         self.page_voice.set_command_text(text)
-        self.page_voice.set_status_message(f"Heard: {text}")
+        backend = getattr(self.speech, "last_backend", "") or "voice"
+        self.page_voice.set_status_message(f"Heard ({backend}): {text}")
         self._run_command(text, source="voice")
 
     def _run_workflow(self, workflow_id: int) -> None:
