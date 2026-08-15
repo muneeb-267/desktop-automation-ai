@@ -64,7 +64,7 @@ if not exist data\logs mkdir data\logs
 if not exist assets\templates mkdir assets\templates
 python -c "from src.config import load_config, ensure_runtime_dirs, resolve_path; from src.db.database import get_database; from src.vision.templates_seed import ensure_template_assets; c=load_config(); ensure_runtime_dirs(c); ensure_template_assets(resolve_path(c['paths']['templates_dir'])); get_database(c); print('Database ready')"
 
-echo [5/5] Creating Desktop shortcut...
+echo [5/5] Creating Desktop icon (multiple Desktop folders)...
 > "%~dp0Run Automate AI.bat" (
   echo @echo off
   echo cd /d "%~dp0"
@@ -78,26 +78,27 @@ echo [5/5] Creating Desktop shortcut...
   echo if errorlevel 1 pause
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$desk=[Environment]::GetFolderPath('Desktop');" ^
-  "$ws=New-Object -ComObject WScript.Shell;" ^
-  "$sc=$ws.CreateShortcut((Join-Path $desk 'Automate AI.lnk'));" ^
-  "$sc.TargetPath='%~dp0Run Automate AI.bat';" ^
-  "$sc.WorkingDirectory='%~dp0';" ^
-  "$sc.WindowStyle=1;" ^
-  "$sc.Description='AI Desktop Automation';" ^
-  "$sc.Save();" ^
-  "Write-Host ('Shortcut: ' + (Join-Path $desk 'Automate AI.lnk'))"
+REM Fallback: copy .bat onto Desktop paths directly
+for %%D in ("%USERPROFILE%\Desktop" "%USERPROFILE%\OneDrive\Desktop" "%PUBLIC%\Desktop") do (
+  if exist %%~D copy /Y "%~dp0Run Automate AI.bat" "%%~D\Automate AI.bat" >nul 2>&1
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\make_desktop_shortcut.ps1" -ProjectRoot "%~dp0"
+if errorlevel 1 (
+  echo PowerShell shortcut helper had an issue — Desktop .bat copy was still attempted.
+)
 
 echo.
 echo  ========================================================
 echo   INSTALL COMPLETE
 echo.
-echo   On your Desktop you should now see:  Automate AI
+echo   Look on your Desktop for:  Automate AI   or   Automate AI.bat
+echo   Press F5 on the Desktop if it does not appear yet.
 echo.
-echo   1. Double-click "Automate AI" on the Desktop
-echo   2. Click "Sign Up Now" with YOUR username + password
-echo   3. No demo account
+echo   Or open the project folder and run:  Run Automate AI.bat
+echo   Or run:  CREATE_DESKTOP_ICON.bat
+echo.
+echo   Then Sign Up Now with YOUR username + password.
 echo  ========================================================
 echo.
 echo Starting Automate AI now...

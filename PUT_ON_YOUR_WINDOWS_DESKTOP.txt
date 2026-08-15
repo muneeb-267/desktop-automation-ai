@@ -15,10 +15,25 @@ FASTEST WAY (ZIP download)
 3. Open that folder and DOUBLE-CLICK:
    INSTALL_ON_YOUR_WINDOWS_PC.bat
 
-4. Wait until it finishes. It creates a Desktop shortcut named:
-   Automate AI
+4. When install finishes, if you do NOT see an icon, DOUBLE-CLICK:
+   CREATE_DESKTOP_ICON.bat
+   (This only creates the Desktop icon — no reinstall.)
 
-5. Double-click "Automate AI" → Sign Up Now with YOUR username/password.
+5. You should see on Desktop:
+   Automate AI
+   or Automate AI.bat
+   Press F5 to refresh the Desktop if needed.
+
+6. Double-click it → Sign Up Now with YOUR username/password.
+
+
+IF THE ICON IS STILL MISSING
+----------------------------
+1. Open the extracted project folder in File Explorer
+2. Double-click:  Run Automate AI.bat
+   (this starts the app even without a Desktop icon)
+3. Then also double-click:  CREATE_DESKTOP_ICON.bat
+4. Press F5 on the Desktop
 
 
 USING GITHUB DESKTOP (you already have it)
@@ -28,8 +43,8 @@ USING GITHUB DESKTOP (you already have it)
    https://github.com/muneeb-267/desktop-automation-ai.git
 3. After clone: Repository → Show in Explorer
 4. Checkout branch: cursor/desktop-automation-ai-a8ac
-   (Branch → New / Current, or in Git Bash: git checkout cursor/desktop-automation-ai-a8ac)
 5. Double-click INSTALL_ON_YOUR_WINDOWS_PC.bat
+6. If no icon: double-click CREATE_DESKTOP_ICON.bat
 
 
 NEED PYTHON?
