@@ -38,6 +38,7 @@ from src.gui.pages.settings_page import SettingsPage
 from src.gui.pages.voice_page import VoiceCommandPage
 from src.gui.pages.workflows_page import WorkflowsPage
 from src.gui.styles import get_app_style
+from src.gui.window_fit import apply_standard_window_chrome, fit_to_screen
 from src.gui.workers import CommandWorker, SpeechWorker, WorkflowWorker
 
 
@@ -59,9 +60,15 @@ class MainWindow(QMainWindow):
 
         app_name = self.config.get("app", {}).get("name", "Automate AI")
         self.setWindowTitle(app_name)
-        self.setMinimumSize(QSize(1180, 720))
+        apply_standard_window_chrome(self)
         ui = self.config.get("ui", {})
-        self.resize(int(ui.get("window_width", 1360)), int(ui.get("window_height", 860)))
+        fit_to_screen(
+            self,
+            preferred_w=int(ui.get("window_width", 1080)),
+            preferred_h=int(ui.get("window_height", 680)),
+            min_w=int(ui.get("min_width", 860)),
+            min_h=int(ui.get("min_height", 560)),
+        )
         self.setStyleSheet(get_app_style(ui.get("theme", "light")))
 
         self._command_worker: Optional[CommandWorker] = None
@@ -91,7 +98,7 @@ class MainWindow(QMainWindow):
         # Sidebar
         side = QFrame()
         side.setObjectName("sideBar")
-        side.setFixedWidth(230)
+        side.setFixedWidth(190)
         sl = QVBoxLayout(side)
         sl.setContentsMargins(16, 18, 16, 16)
         sl.setSpacing(6)

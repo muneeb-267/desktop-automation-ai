@@ -2,7 +2,7 @@ app:
   name: "Automate AI"
   product_name: "AI Desktop Automation"
   group_id: "S26CS089"
-  version: "0.1.5-alpha"
+  version: "0.1.6-alpha"
   tagline: "Control your desktop using voice commands."
 
 paths:
@@ -14,10 +14,10 @@ paths:
 
 ui:
   theme: "light"
-  window_width: 1360
-  window_height: 860
-  min_width: 1180
-  min_height: 720
+  window_width: 1080
+  window_height: 680
+  min_width: 860
+  min_height: 560
 
 speech:
   # auto = Chrome Web Speech first (no USB mic), then hardware mic + Whisper/Gemini/Google

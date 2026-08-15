@@ -16,9 +16,12 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QMessageBox,
     QFrame,
+    QScrollArea,
+    QApplication,
 )
 
 from src.db.repositories import UserRepository, UserConfRepository
+from src.gui.window_fit import apply_standard_window_chrome, fit_to_screen
 
 
 class LoginDialog(QDialog):
@@ -34,21 +37,27 @@ class LoginDialog(QDialog):
         self.users = users
         self.conf_repo = conf_repo
         self.user: Optional[Dict[str, Any]] = None
-        self.setWindowTitle(f"Login / Landing — {app_name}")
-        self.setMinimumSize(1100, 680)
-        self.resize(1200, 740)
+        self.setWindowTitle(f"Login — {app_name}")
+        apply_standard_window_chrome(self)
+        fit_to_screen(self, preferred_w=920, preferred_h=580, min_w=720, min_h=480, margin=40)
 
-        root = QHBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        host = QWidget()
+        root = QHBoxLayout(host)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
         # Left brand panel
         brand = QWidget()
         brand.setObjectName("brandPanel")
-        brand.setMinimumWidth(520)
+        brand.setMinimumWidth(280)
         bl = QVBoxLayout(brand)
-        bl.setContentsMargins(48, 48, 48, 40)
-        bl.setSpacing(14)
+        bl.setContentsMargins(28, 28, 28, 24)
+        bl.setSpacing(10)
 
         logo_row = QHBoxLayout()
         logo_mark = QLabel("⌁")
@@ -68,12 +77,11 @@ class LoginDialog(QDialog):
         h1.setTextFormat(Qt.RichText)
         h2 = QLabel("using voice commands.")
         h2.setObjectName("brandHeadlineAccent")
-        body = QLabel(
-            "Use natural language to open applications, manage files, execute complex "
-            "workflows, and automate repetitive desktop tasks with our advanced AI orchestrator."
+        body_txt = QLabel(
+            "Use natural language to open applications, files, folders, and automate desktop tasks."
         )
-        body.setObjectName("brandBody")
-        body.setWordWrap(True)
+        body_txt.setObjectName("brandBody")
+        body_txt.setWordWrap(True)
 
         feature = QFrame()
         feature.setObjectName("featureCard")
@@ -93,12 +101,12 @@ class LoginDialog(QDialog):
         feats.setObjectName("brandBody")
 
         bl.addLayout(logo_row)
-        bl.addSpacing(24)
+        bl.addSpacing(12)
         bl.addWidget(eyebrow)
         bl.addWidget(h1)
         bl.addWidget(h2)
-        bl.addWidget(body)
-        bl.addSpacing(10)
+        bl.addWidget(body_txt)
+        bl.addSpacing(6)
         bl.addWidget(feature)
         bl.addStretch()
         bl.addWidget(feats)
@@ -107,8 +115,8 @@ class LoginDialog(QDialog):
         form = QWidget()
         form.setObjectName("formPanel")
         fr = QVBoxLayout(form)
-        fr.setContentsMargins(56, 64, 56, 40)
-        fr.setSpacing(12)
+        fr.setContentsMargins(28, 32, 28, 24)
+        fr.setSpacing(10)
 
         title = QLabel(product_name)
         title.setObjectName("loginTitle")
@@ -149,15 +157,15 @@ class LoginDialog(QDialog):
 
         fr.addWidget(title)
         fr.addWidget(subtitle)
-        fr.addSpacing(18)
+        fr.addSpacing(10)
         fr.addWidget(email_lbl)
         fr.addWidget(self.email)
         fr.addLayout(pass_row)
         fr.addWidget(self.password)
         fr.addWidget(self.keep)
-        fr.addSpacing(8)
+        fr.addSpacing(6)
         fr.addWidget(self.btn_login)
-        fr.addSpacing(12)
+        fr.addSpacing(8)
         fr.addWidget(divider)
         fr.addWidget(self.btn_signup)
         fr.addStretch()
@@ -165,7 +173,14 @@ class LoginDialog(QDialog):
 
         root.addWidget(brand, 5)
         root.addWidget(form, 4)
+        scroll.setWidget(host)
+        outer.addWidget(scroll)
 
+        from PyQt5.QtCore import QTimer
+
+        QTimer.singleShot(
+            0, lambda: fit_to_screen(self, 920, 580, min_w=720, min_h=480, margin=40)
+        )
     def _try_login(self) -> None:
         user = self.users.authenticate(self.email.text().strip(), self.password.text())
         if not user:

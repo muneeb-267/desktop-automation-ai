@@ -47,6 +47,24 @@ def test_unknown_command_graceful():
     assert parsed.confidence < 0.5
 
 
+def test_open_file_and_folder():
+    engine = NLPEngine()
+    f = engine.parse("Open file phase2 doc")
+    assert f.intent == "open_file"
+    assert "phase2" in f.entities.get("query", "").lower()
+
+    folder = engine.parse("Open folder Downloads")
+    assert folder.intent == "open_file"
+    assert "download" in folder.entities.get("query", "").lower()
+
+
+def test_open_chrome_still_app():
+    engine = NLPEngine()
+    parsed = engine.parse("Open chrome")
+    assert parsed.intent == "open_app"
+    assert parsed.entities.get("app") == "chrome"
+
+
 def test_spacy_nltk_tokenization():
     """NLP engine must produce tokens/lemmas via spaCy and/or NLTK."""
     engine = NLPEngine()

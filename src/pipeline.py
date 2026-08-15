@@ -109,6 +109,7 @@ class AutomationPipeline:
             not parsed.steps
             and parsed.intent not in (
                 "open_app",
+                "open_file",
                 "click_text",
                 "click_button",
                 "fill_form",
@@ -123,7 +124,8 @@ class AutomationPipeline:
             duration = int((time.perf_counter() - started) * 1000)
             msg = (
                 "Could not understand that command. Try: "
-                "Open Chrome · Click button Login · Fill username with alice · Search weather"
+                "Open Chrome · Open file phase2 doc · Open folder Downloads · "
+                "Search weather · Click Login"
             )
             log_id = self.audit.log_execution(
                 status="Failed",
@@ -378,13 +380,30 @@ class AutomationPipeline:
         result: Dict[str, Any] = {"intent": intent, "entities": entities}
 
         if intent == "open_app":
-            result["automation"] = self.automation.open_app(entities.get("app", ""))
+            app = entities.get("app", "") or entities.get("query", "")
+            try:
+                result["automation"] = self.automation.open_app(app)
+            except Exception:
+                # Free-form: open whatever matches on disk
+                result["automation"] = self.automation.find_and_open(
+                    str(entities.get("query") or app)
+                )
             follow = entities.get("follow_up")
             if follow:
                 follow_parsed = self.nlp.parse(follow)
                 for sub in follow_parsed.steps:
                     sub_res = self._execute_step(sub, user_id=user_id)
                     result.setdefault("follow_ups", []).append(sub_res)
+            return result
+
+        if intent == "open_file":
+            path = entities.get("path")
+            query = entities.get("query") or ""
+            kind = entities.get("kind") or "any"
+            if path:
+                result["automation"] = self.automation.open_path(str(path))
+            else:
+                result["automation"] = self.automation.find_and_open(str(query), kind=str(kind))
             return result
 
         if intent == "type_text":

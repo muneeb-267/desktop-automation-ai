@@ -210,7 +210,9 @@ class NLPEngine:
             # Keep intent but flag low confidence for UI messaging
             entities["low_confidence"] = True
 
-        if intent in ("open_app",) and not entities.get("app"):
+        if intent in ("open_app",) and not entities.get("app") and not entities.get("path"):
+            intent, confidence = "unknown", 0.15
+        if intent == "open_file" and not (entities.get("query") or entities.get("path")):
             intent, confidence = "unknown", 0.15
         if intent in ("click_text", "click_button") and not entities.get("element"):
             intent, confidence = "unknown", 0.15
@@ -243,8 +245,29 @@ class NLPEngine:
             return "scroll", 0.9
         if any(w in lemmas for w in ("wait", "pause", "sleep")):
             return "wait", 0.93
-        if any(w in lemmas for w in ("open", "launch", "start")):
-            return "open_app", 0.92
+        # Open file / folder / document before generic open_app
+        if re.search(
+            r"\b(open|launch|show|start)\s+(?:(?:the|my|a|an)\s+)?"
+            r"(file|document|folder|directory|pdf|docx?|xlsx?|pptx?|txt|zip)\b",
+            lower,
+        ) or re.search(
+            r"\b(open|launch|show)\s+.+\.(pdf|docx?|xlsx?|pptx?|txt|png|jpg|jpeg|csv|zip|mp4|mp3)\b",
+            lower,
+        ) or re.search(r"\b(open|show)\s+folder\b", lower):
+            return "open_file", 0.94
+        if any(w in lemmas for w in ("open", "launch", "start", "show")):
+            # If target looks like a known app → open_app; else may still be a file name
+            m = re.search(r"\b(?:open|launch|start|show)\s+(.+)$", lower)
+            target = (m.group(1) if m else "").strip()
+            target = re.split(r"\band\b", target, maxsplit=1)[0].strip()
+            key = target.lower()
+            first = key.split()[0] if key else ""
+            if key in _APP_ALIASES or first in _APP_ALIASES:
+                return "open_app", 0.92
+            # Prefer file search for free-form names ("open phase2 doc")
+            if key and first not in ("chrome", "notepad", "calculator", "terminal", "cmd"):
+                return "open_file", 0.86
+            return "open_app", 0.9
         if "search" in lemmas or re.search(r"^\s*google\s+\S+", lower):
             return "search_web", 0.9
         # SDS intents: click_button / fill_form (plus click_text alias)
@@ -270,13 +293,38 @@ class NLPEngine:
         self, intent: str, text: str, analysis: Dict[str, Any]
     ) -> Dict[str, Any]:
         entities: Dict[str, Any] = {}
-        if intent == "open_app":
-            m = re.search(r"\b(?:open|launch|start)\s+(.+)$", text, re.I)
+        if intent == "open_file":
+            m = re.search(
+                r"\b(?:open|launch|show|start)\s+(?:(?:the|my|a|an)\s+)?"
+                r"(?:file|document|folder|directory)?\s*[\"']?(?P<q>.+?)[\"']?\s*$",
+                text,
+                re.I,
+            )
+            query = (m.group("q") if m else "").strip(" \"'")
+            query = re.split(r"\band\b", query, maxsplit=1, flags=re.I)[0].strip()
+            # Strip leading type words if still present
+            query = re.sub(
+                r"^(file|document|folder|directory)\s+", "", query, flags=re.I
+            ).strip()
+            entities["query"] = query
+            entities["kind"] = "folder" if re.search(r"\bfolder|directory\b", text, re.I) else "file"
+            # Direct path / extension hint
+            path_m = re.search(
+                r"([A-Za-z]:\\[^\"]+|/[^\"]+|\S+\.(?:pdf|docx?|xlsx?|pptx?|txt|png|jpg|jpeg|csv|zip))",
+                text,
+                re.I,
+            )
+            if path_m:
+                entities["path"] = path_m.group(1)
+        elif intent == "open_app":
+            m = re.search(r"\b(?:open|launch|start|show)\s+(.+)$", text, re.I)
             app = (m.group(1) if m else "").strip()
             # Strip trailing follow-ups already split; keep first app token phrase
             app = re.split(r"\band\b", app, maxsplit=1, flags=re.I)[0].strip()
             for chunk in analysis.get("noun_chunks") or []:
-                cleaned = re.sub(r"^(open|launch|start)\s+", "", chunk.strip(), flags=re.I).strip()
+                cleaned = re.sub(
+                    r"^(open|launch|start|show)\s+", "", chunk.strip(), flags=re.I
+                ).strip()
                 key = cleaned.lower()
                 if key in _APP_ALIASES or key.split()[0] in _APP_ALIASES:
                     app = cleaned
@@ -289,6 +337,8 @@ class NLPEngine:
                 entities["app"] = _APP_ALIASES.get(first, first)
             else:
                 entities["app"] = ""
+            # Keep raw for fallback file search
+            entities["query"] = app
         elif intent in ("click_text", "click_button"):
             m = re.search(
                 r"\b(?:click|tap)\s+(?:(?:on|the)\s+)?(?:button\s+)?(.+)$",

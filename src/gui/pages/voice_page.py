@@ -1,4 +1,4 @@
-"""Voice Command screen with live console feedback."""
+"""Voice Command screen — compact, scrollable, no overlap."""
 
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QSlider,
+    QScrollArea,
+    QSizePolicy,
 )
 
 from src.gui.components.logs_widget import LogsWidget
@@ -32,54 +34,68 @@ class VoiceCommandPage(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._recent_bound = False
-        root = QHBoxLayout(self)
-        root.setContentsMargins(28, 24, 28, 20)
-        root.setSpacing(16)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        host = QWidget()
+        root = QHBoxLayout(host)
+        root.setContentsMargins(16, 12, 16, 12)
+        root.setSpacing(12)
 
         left = QVBoxLayout()
+        left.setSpacing(8)
+
         head = QHBoxLayout()
         titles = QVBoxLayout()
         t = QLabel("Voice Command")
         t.setObjectName("pageTitle")
-        s = QLabel("Control your automation ecosystem with natural language.")
+        s = QLabel("Say or type anything — open apps, files, folders, search, click, type.")
         s.setObjectName("pageSubtitle")
+        s.setWordWrap(True)
         titles.addWidget(t)
         titles.addWidget(s)
-        head.addLayout(titles)
-        head.addStretch()
-        self.last_lbl = QLabel("Last Command: —")
+        head.addLayout(titles, 1)
+        self.last_lbl = QLabel("Last: —")
         self.last_lbl.setObjectName("pageSubtitle")
-        head.addWidget(self.last_lbl)
+        self.last_lbl.setWordWrap(True)
+        self.last_lbl.setMaximumWidth(220)
+        head.addWidget(self.last_lbl, 0, Qt.AlignTop)
         left.addLayout(head)
 
         panel = QFrame()
         panel.setObjectName("voicePanel")
         pl = QVBoxLayout(panel)
-        pl.setContentsMargins(28, 28, 28, 24)
-        pl.setSpacing(14)
-        self.status = QLabel("✓ Ready — click Mic (no USB mic needed)")
-        self.status.setStyleSheet("font-weight:800;font-size:15px;")
+        pl.setContentsMargins(16, 14, 16, 14)
+        pl.setSpacing(8)
+
+        self.status = QLabel("✓ Ready — Speak or type a command")
+        self.status.setStyleSheet("font-weight:700;font-size:13px;")
+        self.status.setWordWrap(True)
+        self.status.setAlignment(Qt.AlignCenter)
+
         hint = QLabel(
-            "Mic opens Chrome voice (laptop mic OK). Or type below and press Enter — same speed."
+            "Examples: Open Chrome · Open phase2 doc · Search weather · Click Login"
         )
         hint.setObjectName("pageSubtitle")
         hint.setAlignment(Qt.AlignCenter)
         hint.setWordWrap(True)
-        self.status.setAlignment(Qt.AlignCenter)
 
         mic_row = QHBoxLayout()
         mic_row.addStretch()
-        self.btn_mic = QPushButton("🎙  Speak")
+        self.btn_mic = QPushButton("🎙 Speak")
         self.btn_mic.setObjectName("btnMicBig")
-        self.btn_mic.setToolTip("Chrome voice recognition — no USB microphone required")
+        self.btn_mic.setToolTip("Click and speak (Chrome voice / laptop mic)")
         self.btn_mic.clicked.connect(self.mic_requested.emit)
         mic_row.addWidget(self.btn_mic)
         mic_row.addStretch()
 
         self.command = QLineEdit()
-        self.command.setPlaceholderText(
-            "> Open Chrome and search for latest AI trends…"
-        )
+        self.command.setPlaceholderText("Open any file, app, or folder…")
         self.command.returnPressed.connect(self._emit_execute)
 
         actions = QHBoxLayout()
@@ -90,7 +106,7 @@ class VoiceCommandPage(QWidget):
         self.btn_stop.setObjectName("btnDanger")
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_requested.emit)
-        run = QPushButton("▶  Execute Command")
+        run = QPushButton("▶ Execute")
         run.clicked.connect(self._emit_execute)
         actions.addWidget(clear)
         actions.addWidget(self.btn_stop)
@@ -99,50 +115,46 @@ class VoiceCommandPage(QWidget):
 
         pl.addWidget(self.status)
         pl.addWidget(hint)
-        pl.addSpacing(8)
         pl.addLayout(mic_row)
-        pl.addSpacing(8)
         pl.addWidget(self.command)
         pl.addLayout(actions)
         left.addWidget(panel)
 
-        recent_title = QLabel("Recent Commands")
-        recent_title.setStyleSheet("font-weight:800;font-size:14px;")
+        recent_title = QLabel("Recent")
+        recent_title.setStyleSheet("font-weight:700;font-size:12px;")
         left.addWidget(recent_title)
         self.recent = QListWidget()
-        self.recent.setMinimumHeight(120)
-        left.addWidget(self.recent, 1)
+        self.recent.setMaximumHeight(110)
+        self.recent.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        left.addWidget(self.recent)
 
         self.console = LogsWidget()
-        left.addWidget(self.console, 1)
+        self.console.setMinimumHeight(120)
+        self.console.setMaximumHeight(180)
+        left.addWidget(self.console)
+        left.addStretch(1)
 
-        # Right assistant panel
         right = QFrame()
         right.setObjectName("panelCard")
-        right.setFixedWidth(300)
+        right.setFixedWidth(220)
         rl = QVBoxLayout(right)
-        rl.setContentsMargins(16, 16, 16, 16)
-        rl.addWidget(QLabel("AI Assistant"))
-        help_lbl = QLabel(
-            "Try SDS intents: open_app, click_button, fill_form, search, type, scroll, wait."
-        )
-        help_lbl.setWordWrap(True)
-        help_lbl.setObjectName("pageSubtitle")
-        rl.addWidget(help_lbl)
-        rl.addWidget(QLabel("Suggested Actions"))
+        rl.setContentsMargins(12, 12, 12, 12)
+        rl.setSpacing(6)
+        rl.addWidget(QLabel("Quick actions"))
         for label, cmd in (
-            ("SYSTEM: Open Chrome", "Open chrome"),
-            ("CONTROL: Click button Login", "Click button Login"),
-            ("FORM: Fill username with demo", "Fill username with demo"),
-            ("PRODUCTIVITY: Search Google", "Search latest AI news"),
+            ("Open Chrome", "Open chrome"),
+            ("Open Downloads", "Open folder Downloads"),
+            ("Open a Word file", "Open file docx"),
+            ("Search Google", "Search latest AI news"),
+            ("Click Login", "Click Login"),
         ):
             b = QPushButton(label)
             b.setObjectName("btnSecondary")
             b.clicked.connect(lambda _=False, c=cmd: self._suggest(c))
             rl.addWidget(b)
 
-        rl.addSpacing(10)
-        rl.addWidget(QLabel("Voice Sensitivity"))
+        rl.addSpacing(6)
+        rl.addWidget(QLabel("Mic sensitivity"))
         self.sensitivity = QSlider(Qt.Horizontal)
         self.sensitivity.setRange(10, 100)
         self.sensitivity.setValue(70)
@@ -150,17 +162,19 @@ class VoiceCommandPage(QWidget):
             lambda v: self.sensitivity_changed.emit(v / 100.0)
         )
         rl.addWidget(self.sensitivity)
-        self.conf_lbl = QLabel("Engine: Chrome voice · Whisper/Gemini if keyed")
+        self.conf_lbl = QLabel("Engine: Chrome voice")
         self.conf_lbl.setObjectName("pageSubtitle")
         self.conf_lbl.setWordWrap(True)
         rl.addWidget(self.conf_lbl)
         rl.addStretch()
-        foot = QLabel("System Status: Online\nv0.1.5-alpha")
+        foot = QLabel("v0.1.6")
         foot.setObjectName("footerLabel")
         rl.addWidget(foot)
 
-        root.addLayout(left, 7)
-        root.addWidget(right, 3)
+        root.addLayout(left, 1)
+        root.addWidget(right, 0)
+        scroll.setWidget(host)
+        outer.addWidget(scroll)
 
     def _emit_execute(self) -> None:
         text = self.command.text().strip()
@@ -176,10 +190,10 @@ class VoiceCommandPage(QWidget):
 
     def set_listening(self, listening: bool) -> None:
         self.status.setText(
-            "● Listening… speak now" if listening else "✓ Ready — click Mic (no USB mic needed)"
+            "● Listening… speak now" if listening else "✓ Ready — Speak or type a command"
         )
         self.btn_mic.setEnabled(not listening)
-        self.btn_mic.setText("…" if listening else "🎙  Speak")
+        self.btn_mic.setText("…" if listening else "🎙 Speak")
 
     def set_busy(self, busy: bool) -> None:
         self.btn_stop.setEnabled(busy)
@@ -209,14 +223,16 @@ class VoiceCommandPage(QWidget):
     def set_engine_label(self, text: str) -> None:
         self.conf_lbl.setText(text)
 
-    def update_recent(self, commands: List[Dict[str, Any]], logs_by_cmd: Dict[int, str] | None = None) -> None:
+    def update_recent(
+        self, commands: List[Dict[str, Any]], logs_by_cmd: Dict[int, str] | None = None
+    ) -> None:
         self.recent.clear()
         logs_by_cmd = logs_by_cmd or {}
         if commands:
-            self.last_lbl.setText(f"Last Command: {commands[0].get('executed_at', '—')}")
-        for cmd in commands[:10]:
+            self.last_lbl.setText(f"Last: {commands[0].get('executed_at', '—')}")
+        for cmd in commands[:8]:
             status = logs_by_cmd.get(cmd.get("command_id"), "—")
-            text = f"{cmd.get('raw_text', '')}   ·   {cmd.get('executed_at', '')}   ·   {status}"
+            text = f"{cmd.get('raw_text', '')}  ·  {status}"
             item = QListWidgetItem(text)
             item.setData(Qt.UserRole, cmd.get("raw_text", ""))
             self.recent.addItem(item)

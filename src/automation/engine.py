@@ -246,10 +246,163 @@ class AutomationEngine:
                 return entry
             except Exception as exc:
                 last_error = exc
+        # Fallback: treat as a file/folder name on the user's machine
+        try:
+            return self.find_and_open(app)
+        except Exception:
+            pass
         if last_error:
             entry["error"] = str(last_error)
             raise RuntimeError(f"Could not open app '{app}': {last_error}") from last_error
         raise RuntimeError(f"Could not open app '{app}'")
+
+    def open_path(self, path: str) -> Dict[str, Any]:
+        """Open any file or folder with the OS default app."""
+        from pathlib import Path
+
+        p = Path(path).expanduser()
+        entry = self._record("open_path", path=str(p))
+        if self.dry_run:
+            return entry
+        if not p.exists():
+            raise RuntimeError(f"Path not found: {p}")
+        system = platform.system().lower()
+        try:
+            if system == "windows":
+                os_start = getattr(__import__("os"), "startfile", None)
+                if os_start:
+                    os_start(str(p))  # type: ignore[misc]
+                else:
+                    subprocess.Popen(["cmd", "/c", "start", "", str(p)], shell=False)
+            elif system == "darwin":
+                subprocess.Popen(["open", str(p)])
+            else:
+                subprocess.Popen(["xdg-open", str(p)])
+            entry["opened"] = str(p)
+            self._sleep(self.app_launch_wait)
+            return entry
+        except Exception as exc:
+            entry["error"] = str(exc)
+            raise RuntimeError(f"Could not open '{p}': {exc}") from exc
+
+    def find_and_open(self, query: str, *, kind: str = "any") -> Dict[str, Any]:
+        """
+        Find a file/folder by name under Desktop/Documents/Downloads/Home and open it.
+        Also resolves well-known folders like Desktop, Downloads, Documents.
+        """
+        from pathlib import Path
+
+        q = (query or "").strip().strip("\"'")
+        entry = self._record("find_and_open", query=q, kind=kind)
+        if not q:
+            raise RuntimeError("Nothing to open — say a file or folder name.")
+
+        home = Path.home()
+        specials = {
+            "desktop": home / "Desktop",
+            "downloads": home / "Downloads",
+            "documents": home / "Documents",
+            "docs": home / "Documents",
+            "pictures": home / "Pictures",
+            "music": home / "Music",
+            "videos": home / "Videos",
+            "home": home,
+            "this pc": home,
+        }
+        # OneDrive Desktop (Windows)
+        onedrive = home / "OneDrive" / "Desktop"
+        if onedrive.exists():
+            specials["desktop"] = onedrive if not (home / "Desktop").exists() else specials["desktop"]
+
+        key = q.lower()
+        if key in specials and specials[key].exists():
+            result = self.open_path(str(specials[key]))
+            entry["matched"] = str(specials[key])
+            entry["open"] = result
+            return entry
+
+        # Direct path
+        direct = Path(q).expanduser()
+        if direct.exists():
+            result = self.open_path(str(direct))
+            entry["matched"] = str(direct)
+            entry["open"] = result
+            return entry
+
+        search_roots = [
+            home / "Desktop",
+            home / "OneDrive" / "Desktop",
+            home / "Documents",
+            home / "Downloads",
+            home / "OneDrive" / "Documents",
+            home,
+        ]
+        # Prefer shorter / closer matches
+        needle = key.replace("_", " ")
+        ext_hint = ""
+        for ext in (".pdf", ".docx", ".doc", ".xlsx", ".pptx", ".txt", ".png", ".jpg", ".zip"):
+            if needle.endswith(ext.strip(".")) or f" {ext.strip('.')}" in needle:
+                ext_hint = ext
+        candidates: List[Path] = []
+        for root in search_roots:
+            if not root.exists():
+                continue
+            try:
+                # Shallow first
+                for depth, pattern in ((1, "*"), (2, "*/*"), (3, "*/*/*")):
+                    for hit in root.glob(pattern):
+                        name = hit.name.lower()
+                        stem = hit.stem.lower().replace("_", " ").replace("-", " ")
+                        if kind == "folder" and not hit.is_dir():
+                            continue
+                        if kind == "file" and not hit.is_file():
+                            continue
+                        if ext_hint and hit.is_file() and hit.suffix.lower() != ext_hint:
+                            # still allow if needle mentions extension loosely
+                            pass
+                        score_ok = (
+                            needle in name
+                            or needle in stem
+                            or all(tok in stem for tok in needle.split() if len(tok) > 2)
+                        )
+                        if score_ok:
+                            candidates.append(hit)
+                    if candidates:
+                        break
+            except Exception:
+                continue
+            if candidates:
+                break
+
+        if not candidates:
+            # Last resort on Windows: `start <query>`
+            system = platform.system().lower()
+            if not self.dry_run and system == "windows":
+                try:
+                    subprocess.Popen(f'start "" "{q}"', shell=True)
+                    entry["launched_with"] = "start"
+                    return entry
+                except Exception:
+                    pass
+            raise RuntimeError(
+                f"Could not find “{q}” on Desktop/Documents/Downloads. "
+                "Try the exact file name, e.g. Open file phase2 doc.docx"
+            )
+
+        # Rank: exact stem > startswith > contains; files preferred unless folder requested
+        def rank(p: Path) -> tuple:
+            stem = p.stem.lower().replace("_", " ").replace("-", " ")
+            exact = 0 if stem == needle or p.name.lower() == needle else 1
+            starts = 0 if stem.startswith(needle) or p.name.lower().startswith(needle) else 1
+            is_dir = 0 if (kind == "folder" and p.is_dir()) or (kind != "folder" and p.is_file()) else 1
+            return (exact, starts, is_dir, len(str(p)))
+
+        best = sorted(candidates, key=rank)[0]
+        result = self.open_path(str(best))
+        entry["matched"] = str(best)
+        entry["candidates"] = [str(c) for c in candidates[:5]]
+        entry["open"] = result
+        return entry
 
     def focus_address_bar_and_search(self, query: str) -> Dict[str, Any]:
         """Focus browser address bar and search (fallback path)."""

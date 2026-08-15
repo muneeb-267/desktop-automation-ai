@@ -20,9 +20,9 @@ QMainWindow, QDialog {
 #brandEyebrow {
     color: #6b7280; font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
 }
-#brandHeadline { font-size: 34px; font-weight: 800; color: #111827; }
+#brandHeadline { font-size: 26px; font-weight: 800; color: #111827; }
 #brandHeadlineAccent {
-    font-size: 34px; font-weight: 500; font-style: italic; color: #6b7280;
+    font-size: 26px; font-weight: 500; font-style: italic; color: #6b7280;
 }
 #brandBody { color: #4b5563; font-size: 14px; }
 #featureCard {
@@ -61,9 +61,9 @@ QPushButton#btnNav[active="true"] {
     background: #e5e7eb; color: #111827; font-weight: 800;
 }
 QPushButton#btnMicBig {
-    background: #111827; border-radius: 48px;
-    min-width: 120px; min-height: 96px; max-width: 160px; max-height: 96px;
-    font-size: 18px; font-weight: 800; padding: 8px 14px;
+    background: #111827; border-radius: 36px;
+    min-width: 88px; min-height: 72px; max-width: 120px; max-height: 72px;
+    font-size: 15px; font-weight: 800; padding: 6px 10px;
 }
 QPushButton#btnMicBig:disabled { background: #6b7280; }
 QPushButton#btnDanger { background: #b42318; color: #ffffff; }
@@ -71,7 +71,7 @@ QPushButton#btnDanger { background: #b42318; color: #ffffff; }
 #sideBar { background: #ffffff; border-right: 1px solid #e5e7eb; }
 #sideBrand { font-size: 16px; font-weight: 800; }
 #topBar { background: #ffffff; border-bottom: 1px solid #e5e7eb; }
-#pageTitle { font-size: 26px; font-weight: 800; }
+#pageTitle { font-size: 20px; font-weight: 800; }
 #pageSubtitle { color: #6b7280; font-size: 13px; }
 #statusChip {
     background: #ecfdf3; color: #067647; border-radius: 12px;
@@ -119,9 +119,9 @@ QMainWindow, QDialog { background: #0f172a; }
 #brandEyebrow {
     color: #94a3b8; font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
 }
-#brandHeadline { font-size: 34px; font-weight: 800; color: #f8fafc; }
+#brandHeadline { font-size: 26px; font-weight: 800; color: #f8fafc; }
 #brandHeadlineAccent {
-    font-size: 34px; font-weight: 500; font-style: italic; color: #94a3b8;
+    font-size: 26px; font-weight: 500; font-style: italic; color: #94a3b8;
 }
 #brandBody { color: #cbd5e1; font-size: 14px; }
 #featureCard {
@@ -161,9 +161,9 @@ QPushButton#btnNav[active="true"] {
     background: #1e293b; color: #f8fafc; font-weight: 800;
 }
 QPushButton#btnMicBig {
-    background: #38bdf8; color: #0f172a; border-radius: 48px;
-    min-width: 120px; min-height: 96px; max-width: 160px; max-height: 96px;
-    font-size: 18px; font-weight: 800; padding: 8px 14px;
+    background: #38bdf8; color: #0f172a; border-radius: 36px;
+    min-width: 88px; min-height: 72px; max-width: 120px; max-height: 72px;
+    font-size: 15px; font-weight: 800; padding: 6px 10px;
 }
 QPushButton#btnMicBig:disabled { background: #475569; color: #cbd5e1; }
 QPushButton#btnDanger { background: #ef4444; color: #ffffff; }
@@ -171,7 +171,7 @@ QPushButton#btnDanger { background: #ef4444; color: #ffffff; }
 #sideBar { background: #111827; border-right: 1px solid #1e293b; }
 #sideBrand { font-size: 16px; font-weight: 800; color: #f8fafc; }
 #topBar { background: #111827; border-bottom: 1px solid #1e293b; }
-#pageTitle { font-size: 26px; font-weight: 800; color: #f8fafc; }
+#pageTitle { font-size: 20px; font-weight: 800; color: #f8fafc; }
 #pageSubtitle { color: #94a3b8; font-size: 13px; }
 #statusChip {
     background: #064e3b; color: #6ee7b7; border-radius: 12px;
