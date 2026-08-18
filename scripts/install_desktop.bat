@@ -20,6 +20,9 @@ python -m venv .venv
 call .venv\Scripts\activate.bat
 python -m pip install -U pip
 pip install -r requirements.txt
+pip install -r requirements-optional.txt
+if errorlevel 1 echo [i] PyAudio optional — Chrome voice still works.
+python -m pip install PyYAML >nul 2>&1
 python -m spacy download en_core_web_sm
 python -c "import nltk; [nltk.download(p, quiet=True) for p in ('punkt','punkt_tab','averaged_perceptron_tagger','averaged_perceptron_tagger_eng')]"
 

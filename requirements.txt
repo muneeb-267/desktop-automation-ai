@@ -1,30 +1,21 @@
-# Presentation Layer
+# Core packages — required for Automate AI to start on any PC
 PyQt5>=5.15.0
-
-# Computer Vision Module (OpenCV + Tesseract OCR)
 opencv-python>=4.8.0
 pytesseract>=0.3.10
 Pillow>=10.0.0
 numpy>=1.24.0
 mss>=9.0.0
-
-# Automation Engine
 pyautogui>=0.9.54
 pyperclip>=1.8.0
-
-# Speech Recognition (Chrome Web Speech + Microphone API + STT)
 SpeechRecognition>=3.10.0
-PyAudio>=0.2.13
-# Optional cloud STT (used when OPENAI_API_KEY / GEMINI_API_KEY are set)
 openai>=1.40.0
 google-genai>=0.3.0
-
-# NLP Engine (spaCy / NLTK)
 spacy>=3.7.0
 nltk>=3.8.0
-
-# Data / config
 PyYAML>=6.0
-
-# Tests
 pytest>=7.4.0
+
+# Optional laptop-mic backend (Chrome voice works without this).
+# Installed separately by INSTALL_ON_YOUR_WINDOWS_PC.bat so a PyAudio
+# build failure cannot block the rest of the app.
+# PyAudio>=0.2.13

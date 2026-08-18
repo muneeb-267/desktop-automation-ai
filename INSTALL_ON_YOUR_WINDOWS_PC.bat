@@ -1,7 +1,7 @@
 @echo off
 REM ============================================================
-REM  Automate AI — ONE-CLICK install for YOUR Windows PC
-REM  Double-click this file after downloading the project folder.
+REM  Automate AI — ONE-CLICK install for a Windows PC
+REM  Safe to re-run if a previous install showed yaml / PyAudio errors.
 REM ============================================================
 setlocal EnableExtensions
 cd /d "%~dp0"
@@ -39,32 +39,60 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [1/5] Python found
+echo [1/6] Python found
 python --version
 
-echo [2/5] Creating virtual environment (.venv)
+echo [2/6] Creating virtual environment (.venv)
 if not exist ".venv\Scripts\python.exe" (
   python -m venv .venv
 )
 call .venv\Scripts\activate.bat
 
-echo [3/5] Installing packages (this can take a few minutes)...
+echo [3/6] Installing core packages (PyYAML, PyQt5, spaCy, ...)
 python -m pip install -U pip
 pip install -r requirements.txt
 if errorlevel 1 (
   echo.
-  echo Package install had errors. If PyAudio failed, the app can still use Chrome voice.
+  echo Core pip install reported errors — retrying essential packages...
+  pip install PyYAML PyQt5 Pillow numpy pyautogui pyperclip SpeechRecognition nltk pytest
+  pip install opencv-python pytesseract mss openai google-genai spacy
 )
 
-echo [4/5] Downloading NLP model + preparing folders/database...
+echo [4/6] Optional microphone library (safe to skip — Chrome voice still works)
+pip install -r requirements-optional.txt
+if errorlevel 1 (
+  echo.
+  echo [i] PyAudio did not install. That is OK.
+  echo     Voice will use Chrome on this PC. Continue...
+)
+
+echo [5/6] NLP model + folders + database
+python -m pip install PyYAML >nul 2>&1
 python -m spacy download en_core_web_sm >nul 2>&1
 python -c "import nltk; [nltk.download(p, quiet=True) for p in ('punkt','punkt_tab','averaged_perceptron_tagger','averaged_perceptron_tagger_eng')]" 2>nul
 if not exist data\captures mkdir data\captures
 if not exist data\logs mkdir data\logs
 if not exist assets\templates mkdir assets\templates
-python -c "from src.config import load_config, ensure_runtime_dirs, resolve_path; from src.db.database import get_database; from src.vision.templates_seed import ensure_template_assets; c=load_config(); ensure_runtime_dirs(c); ensure_template_assets(resolve_path(c['paths']['templates_dir'])); get_database(c); print('Database ready')"
 
-echo [5/5] Creating Desktop icon (multiple Desktop folders)...
+python -c "import yaml, PyQt5; print('Core imports OK')"
+if errorlevel 1 (
+  echo.
+  echo ERROR: Core Python packages are still missing (yaml / PyQt5).
+  echo Close other Python windows, then run this installer again.
+  echo If it still fails, send a screenshot of this window.
+  pause
+  exit /b 1
+)
+
+python -c "from src.config import load_config, ensure_runtime_dirs, resolve_path; from src.db.database import get_database; from src.vision.templates_seed import ensure_template_assets; c=load_config(); ensure_runtime_dirs(c); ensure_template_assets(resolve_path(c['paths']['templates_dir'])); get_database(c); print('Database ready')"
+if errorlevel 1 (
+  echo.
+  echo ERROR: Database setup failed. See the message above.
+  pause
+  exit /b 1
+)
+
+echo [6/6] Creating Desktop icon
 > "%~dp0Run Automate AI.bat" (
   echo @echo off
   echo cd /d "%~dp0"
@@ -78,7 +106,6 @@ echo [5/5] Creating Desktop icon (multiple Desktop folders)...
   echo if errorlevel 1 pause
 )
 
-REM Fallback: copy .bat onto Desktop paths directly
 for %%D in ("%USERPROFILE%\Desktop" "%USERPROFILE%\OneDrive\Desktop" "%PUBLIC%\Desktop") do (
   if exist %%~D copy /Y "%~dp0Run Automate AI.bat" "%%~D\Automate AI.bat" >nul 2>&1
 )
@@ -92,13 +119,11 @@ echo.
 echo  ========================================================
 echo   INSTALL COMPLETE
 echo.
-echo   Look on your Desktop for:  Automate AI   or   Automate AI.bat
+echo   Look on the Desktop for:  Automate AI   or   Automate AI.bat
 echo   Press F5 on the Desktop if it does not appear yet.
 echo.
-echo   Or open the project folder and run:  Run Automate AI.bat
-echo   Or run:  CREATE_DESKTOP_ICON.bat
-echo.
-echo   Then Sign Up Now with YOUR username + password.
+echo   Voice: Chrome (no USB mic needed). PyAudio is optional.
+echo   Then Sign Up with a username + password on THIS PC.
 echo  ========================================================
 echo.
 echo Starting Automate AI now...

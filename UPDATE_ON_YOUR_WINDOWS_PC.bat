@@ -75,6 +75,16 @@ call .venv\Scripts\activate.bat
 echo [3/4] Installing / refreshing packages...
 python -m pip install -U pip >nul
 pip install -r requirements.txt
+if errorlevel 1 (
+  echo Retrying essential packages...
+  pip install PyYAML PyQt5 Pillow numpy pyautogui pyperclip SpeechRecognition nltk pytest
+  pip install opencv-python pytesseract mss openai google-genai spacy
+)
+pip install -r requirements-optional.txt
+if errorlevel 1 (
+  echo [i] PyAudio skipped — Chrome voice still works.
+)
+python -m pip install PyYAML >nul 2>&1
 python -m spacy download en_core_web_sm >nul 2>&1
 
 echo [4/4] Refreshing Desktop icon + launcher...

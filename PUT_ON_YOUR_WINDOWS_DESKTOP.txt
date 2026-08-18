@@ -73,3 +73,24 @@ LOGIN
 -----
 There is NO demo account.
 Use Sign Up Now with your own email/username and password.
+
+
+FRIEND'S PC / INSTALL ERRORS (yaml, PyAudio)
+--------------------------------------------
+If the black window shows:
+  Failed to build PyAudio
+  ModuleNotFoundError: No module named 'yaml'
+
+that means the first install stopped too early. Fix:
+
+1. Close Automate AI if it is open
+2. In the SAME extracted folder, double-click:
+     INSTALL_ON_YOUR_WINDOWS_PC.bat
+   (safe to run again — it finishes the missing packages)
+
+OR download a fresh ZIP of branch cursor/desktop-automation-ai-a8ac
+and run INSTALL_ON_YOUR_WINDOWS_PC.bat from the new folder.
+
+PyAudio failing is OK. Voice uses Chrome, not PyAudio.
+The app only fails if yaml / PyQt5 are missing — the installer now
+installs those first.
