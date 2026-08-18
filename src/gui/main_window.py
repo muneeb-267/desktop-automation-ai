@@ -251,7 +251,7 @@ class MainWindow(QMainWindow):
             gemini_key=str(conf.get("gemini_api_key") or speech_cfg.get("gemini_api_key") or ""),
         )
         cloud = self.speech.cloud_status()
-        bits = ["Chrome voice"]
+        bits = ["Chrome/Edge voice (ready — no extra mic library)"]
         if cloud["openai"]:
             bits.append("Whisper")
         if cloud["gemini"]:
@@ -278,7 +278,7 @@ class MainWindow(QMainWindow):
         if values.get("theme"):
             self._apply_theme(str(values["theme"]))
         cloud = self.speech.cloud_status()
-        bits = ["Chrome voice"]
+        bits = ["Chrome/Edge voice (ready — no extra mic library)"]
         if cloud["openai"]:
             bits.append("Whisper")
         if cloud["gemini"]:

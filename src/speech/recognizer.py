@@ -162,9 +162,14 @@ class SpeechService:
             except Exception as exc:
                 errors.append(str(exc))
                 self._last_error = str(exc)
-                if engine in ("browser", "chrome"):
-                    raise
-                emit("Chrome voice unavailable — trying mic…")
+                # No PyAudio on most Windows PCs — do not fall back to a dead mic path
+                if engine in ("browser", "chrome") or not self.mic_available:
+                    raise RuntimeError(
+                        f"{exc} "
+                        "Click Speak again, allow the microphone in Chrome/Edge, then talk. "
+                        "You can also type the command and press Execute."
+                    ) from exc
+                emit("Chrome voice unavailable — trying laptop mic…")
 
         if engine in ("auto", "microphone", "mic", "cloud"):
             try:
@@ -200,7 +205,8 @@ class SpeechService:
     def _listen_microphone(self, emit) -> str:
         if not self.mic_available:
             raise RuntimeError(
-                "No microphone library available. Chrome voice will be used instead."
+                "Click Speak to use Chrome/Edge voice. "
+                "No extra microphone library is required on this PC."
             )
 
         sr = self._sr

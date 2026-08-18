@@ -244,7 +244,8 @@ class BrowserSpeechBridge:
             ok = self._event.wait(timeout=timeout)
             if not ok or not self._result:
                 raise RuntimeError(
-                    "No speech captured. Allow mic in Chrome, or type your command."
+                    "No speech captured. A Chrome/Edge window should open — "
+                    "click Allow for the microphone, then speak. Or type the command."
                 )
             if not self._result.get("ok"):
                 err = self._result.get("error") or "no-speech"
@@ -273,15 +274,9 @@ class BrowserSpeechBridge:
             self._server = None
 
     def _open_browser(self, url: str) -> None:
-        import shutil
         import subprocess
 
-        chrome = (
-            shutil.which("google-chrome")
-            or shutil.which("google-chrome-stable")
-            or shutil.which("chromium")
-            or shutil.which("chromium-browser")
-        )
+        chrome = _find_chromium_browser()
         if chrome:
             subprocess.Popen(
                 [
@@ -294,4 +289,61 @@ class BrowserSpeechBridge:
                 stderr=subprocess.DEVNULL,
             )
             return
+        # Last resort: default browser (Edge on many Windows PCs — Web Speech works there too)
         webbrowser.open(url)
+
+
+def _find_chromium_browser() -> str:
+    """Locate Chrome or Edge so voice works on Windows without PATH entries."""
+    import os
+    import shutil
+    from pathlib import Path
+
+    named = (
+        shutil.which("chrome")
+        or shutil.which("google-chrome")
+        or shutil.which("google-chrome-stable")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+        or shutil.which("msedge")
+        or shutil.which("microsoft-edge")
+    )
+    if named:
+        return named
+
+    home = Path.home()
+    candidates = [
+        Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
+        / "Google"
+        / "Chrome"
+        / "Application"
+        / "chrome.exe",
+        Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"))
+        / "Google"
+        / "Chrome"
+        / "Application"
+        / "chrome.exe",
+        home / "AppData" / "Local" / "Google" / "Chrome" / "Application" / "chrome.exe",
+        Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
+        / "Microsoft"
+        / "Edge"
+        / "Application"
+        / "msedge.exe",
+        Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"))
+        / "Microsoft"
+        / "Edge"
+        / "Application"
+        / "msedge.exe",
+        home / "AppData" / "Local" / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+        Path("/usr/bin/google-chrome"),
+        Path("/usr/bin/google-chrome-stable"),
+        Path("/usr/bin/chromium"),
+        Path("/usr/bin/microsoft-edge"),
+    ]
+    for path in candidates:
+        try:
+            if path.is_file():
+                return str(path)
+        except Exception:
+            continue
+    return ""

@@ -19,3 +19,20 @@ def test_pcm_to_wav_roundtrip_header():
 def test_speech_service_always_available():
     svc = SpeechService({"speech": {"engine": "browser"}})
     assert svc.available is True
+
+
+def test_listen_does_not_require_pyaudio(monkeypatch):
+    svc = SpeechService({"speech": {"engine": "auto"}})
+    svc._has_pyaudio = False
+
+    def chrome_fail(*_a, **_k):
+        raise RuntimeError("Allow microphone in Chrome")
+
+    monkeypatch.setattr(svc, "_listen_browser", chrome_fail)
+    try:
+        svc.listen_once()
+        assert False, "expected RuntimeError"
+    except RuntimeError as exc:
+        msg = str(exc).lower()
+        assert "no microphone library" not in msg
+        assert "chrome" in msg or "edge" in msg or "execute" in msg

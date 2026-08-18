@@ -91,7 +91,9 @@ class VoiceCommandPage(QWidget):
         mic_row.addStretch()
         self.btn_mic = QPushButton("🎙 Speak")
         self.btn_mic.setObjectName("btnMicBig")
-        self.btn_mic.setToolTip("Click and speak (Chrome voice / laptop mic)")
+        self.btn_mic.setToolTip(
+            "Opens Chrome or Edge — allow the microphone, then speak. No extra library needed."
+        )
         self.btn_mic.clicked.connect(self.mic_requested.emit)
         mic_row.addWidget(self.btn_mic)
         mic_row.addStretch()
@@ -165,12 +167,12 @@ class VoiceCommandPage(QWidget):
             lambda v: self.sensitivity_changed.emit(v / 100.0)
         )
         rl.addWidget(self.sensitivity)
-        self.conf_lbl = QLabel("Engine: Chrome voice")
+        self.conf_lbl = QLabel("Engine: Chrome / Edge voice (ready)")
         self.conf_lbl.setObjectName("pageSubtitle")
         self.conf_lbl.setWordWrap(True)
         rl.addWidget(self.conf_lbl)
         rl.addStretch()
-        foot = QLabel("v0.1.8")
+        foot = QLabel("v0.1.10")
         foot.setObjectName("footerLabel")
         rl.addWidget(foot)
 
