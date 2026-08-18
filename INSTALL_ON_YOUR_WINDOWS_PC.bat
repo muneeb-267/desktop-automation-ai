@@ -10,8 +10,8 @@ title Automate AI - Installing on your PC...
 color 0A
 echo.
 echo  ========================================================
-echo   Automate AI / AI Desktop Automation
-echo   Installing on THIS Windows computer...
+echo   Automate AI installer  v0.1.9
+echo   If this does NOT say v0.1.9 you have an OLD copy.
 echo  ========================================================
 echo.
 
