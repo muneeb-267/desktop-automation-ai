@@ -206,6 +206,8 @@ class MainWindow(QMainWindow):
         self.page_workflows.delete_requested.connect(self._delete_workflow)
         self.page_workflows.edit_requested.connect(self._edit_workflow)
         self.page_workflows.refresh_requested.connect(self.refresh_all)
+        self.page_workflows.record_start_requested.connect(self._start_workflow_recording)
+        self.page_workflows.record_stop_save_requested.connect(self._stop_workflow_recording)
 
         self.page_settings.save_requested.connect(self._save_settings)
 
@@ -376,7 +378,9 @@ class MainWindow(QMainWindow):
         if not self.pipeline.automation.dry_run and self._needs_desktop_focus(text):
             self.showMinimized()
             QApplication.processEvents()
-        self.pipeline.automation.clear_history()
+        # Keep accumulating when recording a workflow; otherwise reset per command
+        if not self.pipeline.automation.recording:
+            self.pipeline.automation.clear_history()
         self._command_worker = CommandWorker(
             self.pipeline, text, self.user["user_id"], source=source, parent=self
         )
@@ -396,6 +400,9 @@ class MainWindow(QMainWindow):
             self.page_voice.set_status_message(f"✓ Completed successfully ({mode})")
         else:
             self.page_voice.set_status_message(f"✗ {result.get('error') or 'Failed'}")
+        if self.pipeline.automation.recording:
+            n = len(self.pipeline.automation.session_history)
+            self.page_workflows.set_recording(True, step_count=n)
         self.schedule_refresh()
 
     def _stop_workers(self) -> None:
@@ -456,22 +463,69 @@ class MainWindow(QMainWindow):
             self.raise_()
         self.schedule_refresh()
 
+    def _start_workflow_recording(self) -> None:
+        self.pipeline.automation.start_recording()
+        self.page_workflows.set_recording(True, step_count=0)
+        self._show_page("voice")
+        self.page_voice.set_status_message(
+            "● Recording workflow — speak or type each step, then Save as workflow"
+        )
+        QMessageBox.information(
+            self,
+            "Recording",
+            "Recording started.\n\n"
+            "1. Go to Voice Command (already opened)\n"
+            "2. Speak or type each step (open apps, copy files, click…)\n"
+            "3. Open Workflows → Save as workflow and give it a name\n\n"
+            "Later say: Run <your workflow name>",
+        )
+
+    def _stop_workflow_recording(self) -> None:
+        steps = self.pipeline.automation.stop_recording()
+        self.page_workflows.set_recording(False, step_count=len(steps))
+        if steps:
+            QMessageBox.information(
+                self,
+                "Recording stopped",
+                f"Captured {len(steps)} actions.\nClick Save as workflow to name and keep them.",
+            )
+        else:
+            # Resume empty session cleared — user can still save last history
+            self.page_workflows.set_recording(False, step_count=0)
+
     def _create_workflow(self, name: str, description: str) -> None:
-        history = self.pipeline.automation.history
+        # Prefer full recording session; fall back to last command history
+        history = self.pipeline.automation.session_history or self.pipeline.automation.history
+        if self.pipeline.automation.recording:
+            history = self.pipeline.automation.session_history
+            self.pipeline.automation.stop_recording()
+            self.page_workflows.set_recording(False, step_count=len(history))
+
         tasks = self.workflows.tasks_from_action_history(history)
         if not tasks:
-            tasks = [
-                {
-                    "intent": "wait",
-                    "target_app": "",
-                    "target_element": "",
-                    "input_value": "1",
-                    "params": {"seconds": 1},
-                }
-            ]
+            QMessageBox.warning(
+                self,
+                "No steps to save",
+                "Do some actions first (Record steps, then speak/type commands), "
+                "then Save as workflow.\n\n"
+                "Example: Open Chrome → Search weather → Copy file report to Desktop",
+            )
+            return
         try:
             self.workflows.create_workflow(
-                self.user["user_id"], name, description, tasks=tasks
+                self.user["user_id"],
+                name,
+                description,
+                tasks=tasks,
+                trigger_type="voice",
+            )
+            self.pipeline.automation.clear_session()
+            self.pipeline.automation.clear_history()
+            QMessageBox.information(
+                self,
+                "Workflow saved",
+                f"Saved “{name}” with {len(tasks)} steps.\n\n"
+                f"Say: Run {name}",
             )
             self.refresh_all()
         except Exception as exc:

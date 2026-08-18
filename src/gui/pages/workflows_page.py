@@ -25,10 +25,13 @@ class WorkflowsPage(QWidget):
     delete_requested = pyqtSignal(int)
     edit_requested = pyqtSignal(int)
     refresh_requested = pyqtSignal()
+    record_start_requested = pyqtSignal()
+    record_stop_save_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._workflows: List[Dict[str, Any]] = []
+        self._recording = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -47,18 +50,36 @@ class WorkflowsPage(QWidget):
         titles.setSpacing(4)
         t = QLabel("Workflow Management")
         t.setObjectName("pageTitle")
-        s = QLabel("Organize and trigger your automated desktop routines.")
+        s = QLabel(
+            "Record live steps (voice or typed), save them as a workflow, "
+            "then say “Run <workflow name>” anytime."
+        )
         s.setObjectName("pageSubtitle")
         s.setWordWrap(True)
         titles.addWidget(t)
         titles.addWidget(s)
         head.addLayout(titles, 1)
-        create = QPushButton("+ Create Workflow")
+
+        self.btn_record = QPushButton("● Record steps")
+        self.btn_record.setObjectName("btnSecondary")
+        self.btn_record.setMinimumHeight(36)
+        self.btn_record.clicked.connect(self._toggle_record)
+
+        create = QPushButton("+ Save as workflow")
         create.setObjectName("btnPrimary")
         create.setMinimumHeight(36)
+        create.setToolTip("Saves recorded steps (or last command actions) as a named workflow")
         create.clicked.connect(self._create)
+        head.addWidget(self.btn_record, 0, Qt.AlignTop)
         head.addWidget(create, 0, Qt.AlignTop)
         root.addLayout(head)
+
+        self.record_status = QLabel(
+            "Tip: click Record steps → do your actions by voice/type → Save as workflow."
+        )
+        self.record_status.setObjectName("pageSubtitle")
+        self.record_status.setWordWrap(True)
+        root.addWidget(self.record_status)
 
         stats = QHBoxLayout()
         stats.setSpacing(12)
@@ -240,13 +261,44 @@ class WorkflowsPage(QWidget):
         return card
 
     def _create(self) -> None:
-        name, ok = QInputDialog.getText(self, "Create Workflow", "Workflow name:")
+        name, ok = QInputDialog.getText(self, "Save Workflow", "Workflow name:")
         if not ok or not name.strip():
             return
-        desc, ok2 = QInputDialog.getText(self, "Create Workflow", "Description (optional):")
+        desc, ok2 = QInputDialog.getText(
+            self, "Save Workflow", "Description (optional):"
+        )
         if not ok2:
             desc = ""
         self.create_requested.emit(name.strip(), (desc or "").strip())
+
+    def _toggle_record(self) -> None:
+        if self._recording:
+            self.set_recording(False)
+            self.record_stop_save_requested.emit()
+        else:
+            self.record_start_requested.emit()
+
+    def set_recording(self, active: bool, step_count: int = 0) -> None:
+        self._recording = active
+        if active:
+            self.btn_record.setText("■ Stop recording")
+            self.btn_record.setObjectName("btnDanger")
+            self.record_status.setText(
+                f"Recording… ({step_count} actions). Use Voice or type commands, then Save as workflow."
+            )
+        else:
+            self.btn_record.setText("● Record steps")
+            self.btn_record.setObjectName("btnSecondary")
+            if step_count:
+                self.record_status.setText(
+                    f"Recorded {step_count} actions. Click Save as workflow and give it a name."
+                )
+            else:
+                self.record_status.setText(
+                    "Tip: click Record steps → do your actions by voice/type → Save as workflow."
+                )
+        self.btn_record.style().unpolish(self.btn_record)
+        self.btn_record.style().polish(self.btn_record)
 
     def set_live_logs(self, lines: List[str]) -> None:
         if not lines:

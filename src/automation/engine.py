@@ -22,6 +22,8 @@ class AutomationEngine:
         self.app_launch_wait = float(auto.get("app_launch_wait", 0.45))
         self.failsafe = bool(auto.get("failsafe", True))
         self._history: List[Dict[str, Any]] = []
+        self._session: List[Dict[str, Any]] = []
+        self._session_active = False
         self._pyautogui = None
         self._pyautogui_error = ""
         self._pyautogui = self._load_pyautogui()
@@ -68,12 +70,35 @@ class AutomationEngine:
     def history(self) -> List[Dict[str, Any]]:
         return list(self._history)
 
+    @property
+    def session_history(self) -> List[Dict[str, Any]]:
+        return list(self._session)
+
+    @property
+    def recording(self) -> bool:
+        return self._session_active
+
     def clear_history(self) -> None:
         self._history.clear()
+
+    def start_recording(self) -> None:
+        """Begin accumulating actions for Save as Workflow."""
+        self._session.clear()
+        self._session_active = True
+
+    def stop_recording(self) -> List[Dict[str, Any]]:
+        self._session_active = False
+        return list(self._session)
+
+    def clear_session(self) -> None:
+        self._session.clear()
+        self._session_active = False
 
     def _record(self, action: str, **kwargs: Any) -> Dict[str, Any]:
         entry = {"action": action, "dry_run": self.dry_run, **kwargs}
         self._history.append(entry)
+        if self._session_active:
+            self._session.append(entry)
         return entry
 
     def _sleep(self, seconds: Optional[float] = None) -> None:
@@ -256,12 +281,14 @@ class AutomationEngine:
             raise RuntimeError(f"Could not open app '{app}': {last_error}") from last_error
         raise RuntimeError(f"Could not open app '{app}'")
 
-    def open_path(self, path: str) -> Dict[str, Any]:
+    def open_path(self, path: str, *, record: bool = True) -> Dict[str, Any]:
         """Open any file or folder with the OS default app."""
         from pathlib import Path
 
         p = Path(path).expanduser()
-        entry = self._record("open_path", path=str(p))
+        entry: Dict[str, Any] = {"action": "open_path", "dry_run": self.dry_run, "path": str(p)}
+        if record:
+            entry = self._record("open_path", path=str(p))
         if self.dry_run:
             return entry
         if not p.exists():
@@ -285,17 +312,13 @@ class AutomationEngine:
             entry["error"] = str(exc)
             raise RuntimeError(f"Could not open '{p}': {exc}") from exc
 
-    def find_and_open(self, query: str, *, kind: str = "any") -> Dict[str, Any]:
-        """
-        Find a file/folder by name under Desktop/Documents/Downloads/Home and open it.
-        Also resolves well-known folders like Desktop, Downloads, Documents.
-        """
+    def resolve_path(self, query: str, *, kind: str = "any"):
+        """Resolve a file/folder name or path under Desktop/Documents/Downloads/Home."""
         from pathlib import Path
 
         q = (query or "").strip().strip("\"'")
-        entry = self._record("find_and_open", query=q, kind=kind)
         if not q:
-            raise RuntimeError("Nothing to open — say a file or folder name.")
+            raise RuntimeError("Missing file or folder name.")
 
         home = Path.home()
         specials = {
@@ -309,25 +332,17 @@ class AutomationEngine:
             "home": home,
             "this pc": home,
         }
-        # OneDrive Desktop (Windows)
         onedrive = home / "OneDrive" / "Desktop"
-        if onedrive.exists():
-            specials["desktop"] = onedrive if not (home / "Desktop").exists() else specials["desktop"]
+        if onedrive.exists() and not (home / "Desktop").exists():
+            specials["desktop"] = onedrive
 
         key = q.lower()
         if key in specials and specials[key].exists():
-            result = self.open_path(str(specials[key]))
-            entry["matched"] = str(specials[key])
-            entry["open"] = result
-            return entry
+            return specials[key]
 
-        # Direct path
         direct = Path(q).expanduser()
         if direct.exists():
-            result = self.open_path(str(direct))
-            entry["matched"] = str(direct)
-            entry["open"] = result
-            return entry
+            return direct
 
         search_roots = [
             home / "Desktop",
@@ -337,19 +352,13 @@ class AutomationEngine:
             home / "OneDrive" / "Documents",
             home,
         ]
-        # Prefer shorter / closer matches
         needle = key.replace("_", " ")
-        ext_hint = ""
-        for ext in (".pdf", ".docx", ".doc", ".xlsx", ".pptx", ".txt", ".png", ".jpg", ".zip"):
-            if needle.endswith(ext.strip(".")) or f" {ext.strip('.')}" in needle:
-                ext_hint = ext
         candidates: List[Path] = []
         for root in search_roots:
             if not root.exists():
                 continue
             try:
-                # Shallow first
-                for depth, pattern in ((1, "*"), (2, "*/*"), (3, "*/*/*")):
+                for pattern in ("*", "*/*", "*/*/*"):
                     for hit in root.glob(pattern):
                         name = hit.name.lower()
                         stem = hit.stem.lower().replace("_", " ").replace("-", " ")
@@ -357,9 +366,6 @@ class AutomationEngine:
                             continue
                         if kind == "file" and not hit.is_file():
                             continue
-                        if ext_hint and hit.is_file() and hit.suffix.lower() != ext_hint:
-                            # still allow if needle mentions extension loosely
-                            pass
                         score_ok = (
                             needle in name
                             or needle in stem
@@ -375,7 +381,113 @@ class AutomationEngine:
                 break
 
         if not candidates:
-            # Last resort on Windows: `start <query>`
+            raise RuntimeError(
+                f"Could not find “{q}” on Desktop/Documents/Downloads. "
+                "Try the exact name, e.g. report.docx"
+            )
+
+        def rank(p: Path) -> tuple:
+            stem = p.stem.lower().replace("_", " ").replace("-", " ")
+            exact = 0 if stem == needle or p.name.lower() == needle else 1
+            starts = 0 if stem.startswith(needle) or p.name.lower().startswith(needle) else 1
+            is_dir = 0 if (kind == "folder" and p.is_dir()) or (kind != "folder" and p.is_file()) else 1
+            return (exact, starts, is_dir, len(str(p)))
+
+        return sorted(candidates, key=rank)[0]
+
+    def copy_file(self, source: str, destination: str) -> Dict[str, Any]:
+        """Copy a file (or folder tree) to a destination path or folder."""
+        from pathlib import Path
+
+        src = self.resolve_path(source, kind="any")
+        dest_query = (destination or "").strip().strip("\"'")
+        entry = self._record(
+            "copy_file", source=str(src), destination=dest_query, matched_source=str(src)
+        )
+        if not dest_query:
+            raise RuntimeError("Say where to paste, e.g. Copy file report to Desktop")
+
+        # Destination may be an existing folder name, a path, or a new file path
+        try:
+            dest = self.resolve_path(dest_query, kind="any")
+        except RuntimeError:
+            dest = Path(dest_query).expanduser()
+            if not dest.is_absolute():
+                # Prefer Desktop for relative new paths
+                dest = Path.home() / "Desktop" / dest_query
+
+        if self.dry_run:
+            entry["dest_resolved"] = str(dest)
+            return entry
+
+        if dest.exists() and dest.is_dir():
+            target = dest / src.name
+        elif dest.suffix or not dest.exists():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            target = dest
+        else:
+            target = dest / src.name
+
+        if src.is_dir():
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(src, target)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, target)
+        entry["copied_to"] = str(target)
+        entry["dest_resolved"] = str(target)
+        self._sleep(0.05)
+        return entry
+
+    def move_file(self, source: str, destination: str) -> Dict[str, Any]:
+        """Move a file/folder to a destination folder or path."""
+        from pathlib import Path
+
+        src = self.resolve_path(source, kind="any")
+        dest_query = (destination or "").strip().strip("\"'")
+        entry = self._record(
+            "move_file", source=str(src), destination=dest_query, matched_source=str(src)
+        )
+        if not dest_query:
+            raise RuntimeError("Say where to move it, e.g. Move file report to Documents")
+
+        try:
+            dest = self.resolve_path(dest_query, kind="any")
+        except RuntimeError:
+            dest = Path(dest_query).expanduser()
+            if not dest.is_absolute():
+                dest = Path.home() / "Desktop" / dest_query
+
+        if self.dry_run:
+            entry["dest_resolved"] = str(dest)
+            return entry
+
+        if dest.exists() and dest.is_dir():
+            target = dest / src.name
+        else:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            target = dest
+
+        shutil.move(str(src), str(target))
+        entry["moved_to"] = str(target)
+        entry["dest_resolved"] = str(target)
+        self._sleep(0.05)
+        return entry
+
+    def find_and_open(self, query: str, *, kind: str = "any") -> Dict[str, Any]:
+        """
+        Find a file/folder by name under Desktop/Documents/Downloads/Home and open it.
+        Also resolves well-known folders like Desktop, Downloads, Documents.
+        """
+        q = (query or "").strip().strip("\"'")
+        entry = self._record("find_and_open", query=q, kind=kind)
+        if not q:
+            raise RuntimeError("Nothing to open — say a file or folder name.")
+
+        try:
+            best = self.resolve_path(q, kind=kind)
+        except RuntimeError:
             system = platform.system().lower()
             if not self.dry_run and system == "windows":
                 try:
@@ -384,23 +496,10 @@ class AutomationEngine:
                     return entry
                 except Exception:
                     pass
-            raise RuntimeError(
-                f"Could not find “{q}” on Desktop/Documents/Downloads. "
-                "Try the exact file name, e.g. Open file phase2 doc.docx"
-            )
+            raise
 
-        # Rank: exact stem > startswith > contains; files preferred unless folder requested
-        def rank(p: Path) -> tuple:
-            stem = p.stem.lower().replace("_", " ").replace("-", " ")
-            exact = 0 if stem == needle or p.name.lower() == needle else 1
-            starts = 0 if stem.startswith(needle) or p.name.lower().startswith(needle) else 1
-            is_dir = 0 if (kind == "folder" and p.is_dir()) or (kind != "folder" and p.is_file()) else 1
-            return (exact, starts, is_dir, len(str(p)))
-
-        best = sorted(candidates, key=rank)[0]
-        result = self.open_path(str(best))
+        result = self.open_path(str(best), record=False)
         entry["matched"] = str(best)
-        entry["candidates"] = [str(c) for c in candidates[:5]]
         entry["open"] = result
         return entry
 

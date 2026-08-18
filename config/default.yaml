@@ -2,7 +2,7 @@ app:
   name: "Automate AI"
   product_name: "AI Desktop Automation"
   group_id: "S26CS089"
-  version: "0.1.7-alpha"
+  version: "0.1.8-alpha"
   tagline: "Control your desktop using voice commands."
 
 paths:
@@ -30,7 +30,7 @@ speech:
   pause_threshold: 0.35
   non_speaking_duration: 0.2
   language: "en-US"
-  browser_timeout: 14
+  browser_timeout: 18
   bridge_host: "127.0.0.1"
   bridge_port: 8765
   # auto | openai | gemini — used when OPENAI_API_KEY / GEMINI_API_KEY are set

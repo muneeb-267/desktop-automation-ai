@@ -119,13 +119,15 @@ class AutomationPipeline:
                 "scroll",
                 "wait",
                 "run_workflow",
+                "copy_file",
+                "move_file",
             )
         ):
             duration = int((time.perf_counter() - started) * 1000)
             msg = (
                 "Could not understand that command. Try: "
-                "Open Chrome · Open file phase2 doc · Open folder Downloads · "
-                "Search weather · Click Login"
+                "Open Chrome · Open file report · Copy file report to Desktop · "
+                "Run Morning Setup · Search weather · Click Login"
             )
             log_id = self.audit.log_execution(
                 status="Failed",
@@ -289,9 +291,16 @@ class AutomationPipeline:
         command_id: Optional[int] = None,
         status_cb: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
+        emit = status_cb or (lambda _m: None)
         wf = self.workflows.find_by_name(user_id, name)
         if not wf:
-            started_error = f"Workflow not found: {name}"
+            names = [w.get("name", "") for w in self.workflows.list_workflows(user_id)]
+            hint = (", ".join(names[:6]) if names else "create one on the Workflows page")
+            started_error = (
+                f"Workflow not found: “{name}”. "
+                f"Say the workflow name after run. Available: {hint}"
+            )
+            emit(started_error)
             log_id = self.audit.log_execution(
                 status="Failed",
                 duration_ms=0,
@@ -300,6 +309,7 @@ class AutomationPipeline:
                 command_id=command_id,
             )
             return {"ok": False, "error": started_error, "log_id": log_id}
+        emit(f"Running workflow “{wf.get('name')}”…")
         return self.run_workflow(
             wf["workflow_id"],
             user_id=user_id,
@@ -453,6 +463,20 @@ class AutomationPipeline:
             result["automation"] = self.automation.search_google(query)
             return result
 
+        if intent == "copy_file":
+            result["automation"] = self.automation.copy_file(
+                str(entities.get("source") or ""),
+                str(entities.get("destination") or ""),
+            )
+            return result
+
+        if intent == "move_file":
+            result["automation"] = self.automation.move_file(
+                str(entities.get("source") or ""),
+                str(entities.get("destination") or ""),
+            )
+            return result
+
         if intent in ("click_text", "click_button"):
             element = entities.get("element", "")
             clicked = self._click_element(str(element), entities)
@@ -470,7 +494,7 @@ class AutomationPipeline:
             return result
 
         raise RuntimeError(
-            f"Unsupported intent: {intent}. Try open / click / fill / type / search."
+            f"Unsupported intent: {intent}. Try open / copy / click / fill / type / search / run."
         )
 
     def capture_preview(self) -> Dict[str, Any]:

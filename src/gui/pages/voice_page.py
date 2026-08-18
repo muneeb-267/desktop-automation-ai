@@ -54,7 +54,9 @@ class VoiceCommandPage(QWidget):
         titles = QVBoxLayout()
         t = QLabel("Voice Command")
         t.setObjectName("pageTitle")
-        s = QLabel("Say or type anything — open apps, files, folders, search, click, type.")
+        s = QLabel(
+            "Speak or type — open apps/files, copy files, run workflows. Hotkey: Ctrl+Space"
+        )
         s.setObjectName("pageSubtitle")
         s.setWordWrap(True)
         titles.addWidget(t)
@@ -79,7 +81,7 @@ class VoiceCommandPage(QWidget):
         self.status.setAlignment(Qt.AlignCenter)
 
         hint = QLabel(
-            "Examples: Open Chrome · Open phase2 doc · Search weather · Click Login"
+            "Examples: Open Chrome · Copy file report to Desktop · Run Morning Setup · Click Login"
         )
         hint.setObjectName("pageSubtitle")
         hint.setAlignment(Qt.AlignCenter)
@@ -144,7 +146,8 @@ class VoiceCommandPage(QWidget):
         for label, cmd in (
             ("Open Chrome", "Open chrome"),
             ("Open Downloads", "Open folder Downloads"),
-            ("Open a Word file", "Open file docx"),
+            ("Copy file → Desktop", "Copy file report to Desktop"),
+            ("Run a workflow", "Run Morning Setup"),
             ("Search Google", "Search latest AI news"),
             ("Click Login", "Click Login"),
         ):
@@ -167,7 +170,7 @@ class VoiceCommandPage(QWidget):
         self.conf_lbl.setWordWrap(True)
         rl.addWidget(self.conf_lbl)
         rl.addStretch()
-        foot = QLabel("v0.1.6")
+        foot = QLabel("v0.1.8")
         foot.setObjectName("footerLabel")
         rl.addWidget(foot)
 

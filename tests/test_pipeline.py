@@ -43,6 +43,17 @@ def test_text_command_dry_run(tmp_path: Path):
 
     logs = pipeline.audit.recent_logs(10)
     assert any(l["status"] == "Success" for l in logs)
+
+    # Voice-style: run by short name + copy file dry-run
+    by_name = pipeline.run_workflow_by_name(user_id, "From History")
+    assert by_name["ok"] is True
+
+    copy = pipeline.run_text_command(
+        "Copy file report to Desktop", user_id=user_id
+    )
+    # May fail if file missing — dry_run still resolves destinations; accept ok or clear error
+    assert copy["parsed"]["intent"] == "copy_file"
+
     db.close()
     reset_database_singleton()
 

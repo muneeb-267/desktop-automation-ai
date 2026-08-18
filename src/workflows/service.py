@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.db.database import Database
 from src.db.repositories import (
@@ -59,10 +60,35 @@ class WorkflowService:
         self.tasks.replace_tasks(workflow_id, tasks)
 
     def find_by_name(self, user_id: int, name: str) -> Optional[Dict[str, Any]]:
-        for wf in self.list_workflows(user_id):
-            if wf["name"].lower() == name.lower():
+        """Exact match first, then fuzzy contains / token overlap."""
+        needle = (name or "").strip().lower()
+        needle = re.sub(r"^(workflow|macro)\s+", "", needle).strip()
+        if not needle:
+            return None
+        items = self.list_workflows(user_id)
+        for wf in items:
+            if wf["name"].lower() == needle:
                 return wf
-        return None
+
+        scored: List[Tuple[int, Dict[str, Any]]] = []
+        tokens = [t for t in re.split(r"\W+", needle) if len(t) > 1]
+        for wf in items:
+            wn = wf["name"].lower()
+            score = 0
+            if needle in wn or wn in needle:
+                score += 50
+            if tokens:
+                hits = sum(1 for t in tokens if t in wn)
+                score += int(40 * hits / len(tokens))
+            if score > 0:
+                scored.append((score, wf))
+        if not scored:
+            return None
+        scored.sort(key=lambda x: (-x[0], len(x[1]["name"])))
+        best_score, best = scored[0]
+        if best_score < 30:
+            return None
+        return best
 
     def tasks_from_action_history(self, history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         mapped: List[Dict[str, Any]] = []
@@ -76,6 +102,21 @@ class WorkflowService:
                         "target_element": "",
                         "input_value": "",
                         "params": {},
+                    }
+                )
+            elif action in ("open_path", "find_and_open"):
+                query = item.get("matched") or item.get("path") or item.get("query") or ""
+                mapped.append(
+                    {
+                        "intent": "open_file",
+                        "target_app": "",
+                        "target_element": "",
+                        "input_value": str(query),
+                        "params": {
+                            "query": str(item.get("query") or query),
+                            "path": str(item.get("path") or item.get("matched") or ""),
+                            "kind": item.get("kind") or "any",
+                        },
                     }
                 )
             elif action == "type_text":
@@ -161,6 +202,38 @@ class WorkflowService:
                         "params": {"query": item.get("query", "")},
                     }
                 )
+            elif action == "copy_file":
+                mapped.append(
+                    {
+                        "intent": "copy_file",
+                        "target_app": "",
+                        "target_element": item.get("source") or item.get("matched_source") or "",
+                        "input_value": item.get("destination") or item.get("copied_to") or "",
+                        "params": {
+                            "source": item.get("source") or item.get("matched_source") or "",
+                            "destination": item.get("destination")
+                            or item.get("copied_to")
+                            or item.get("dest_resolved")
+                            or "",
+                        },
+                    }
+                )
+            elif action == "move_file":
+                mapped.append(
+                    {
+                        "intent": "move_file",
+                        "target_app": "",
+                        "target_element": item.get("source") or item.get("matched_source") or "",
+                        "input_value": item.get("destination") or item.get("moved_to") or "",
+                        "params": {
+                            "source": item.get("source") or item.get("matched_source") or "",
+                            "destination": item.get("destination")
+                            or item.get("moved_to")
+                            or item.get("dest_resolved")
+                            or "",
+                        },
+                    }
+                )
         return mapped
 
     @staticmethod
@@ -171,12 +244,19 @@ class WorkflowService:
                 params = json.loads(params)
             except json.JSONDecodeError:
                 params = {}
+        # Also accept already-decoded params
+        if not params and isinstance(task.get("params"), dict):
+            params = task["params"]
         intent = task.get("intent", "wait")
         entities: Dict[str, Any] = dict(params) if isinstance(params, dict) else {}
         if intent == "open_app":
             entities["app"] = task.get("target_app", "") or entities.get("app", "")
             if entities.get("url") and not entities.get("app"):
                 entities["app"] = "chrome"
+        elif intent == "open_file":
+            entities.setdefault("query", task.get("input_value") or "")
+            if task.get("input_value") and not entities.get("path"):
+                entities.setdefault("path", "")
         elif intent in ("click_text", "click_button"):
             entities["element"] = task.get("target_element", "") or entities.get("element", "")
         elif intent == "fill_form":
@@ -195,4 +275,15 @@ class WorkflowService:
         elif intent == "scroll":
             entities.setdefault("direction", "down")
             entities.setdefault("amount", 3)
+        elif intent in ("copy_file", "move_file"):
+            entities["source"] = (
+                entities.get("source")
+                or task.get("target_element")
+                or ""
+            )
+            entities["destination"] = (
+                entities.get("destination")
+                or task.get("input_value")
+                or ""
+            )
         return {"intent": intent, "entities": entities, "confidence": 1.0}

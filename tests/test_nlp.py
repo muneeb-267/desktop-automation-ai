@@ -26,6 +26,27 @@ def test_wait_scroll_workflow():
     assert engine.parse("wait 2 seconds").intent == "wait"
     assert engine.parse("scroll down 5").entities.get("amount") == 5
     assert engine.parse("run workflow Open Notepad Demo").intent == "run_workflow"
+    short = engine.parse("Run Morning Study Setup")
+    assert short.intent == "run_workflow"
+    assert "morning" in short.entities.get("workflow", "").lower()
+
+
+def test_copy_and_move_file():
+    engine = NLPEngine()
+    copy = engine.parse("Copy file report to Desktop")
+    assert copy.intent == "copy_file"
+    assert "report" in copy.entities.get("source", "").lower()
+    assert "desktop" in copy.entities.get("destination", "").lower()
+
+    paste = engine.parse("Copy file phase2 doc and paste it to Documents")
+    assert paste.intent == "copy_file"
+    assert "phase2" in paste.entities.get("source", "").lower()
+    assert "document" in paste.entities.get("destination", "").lower()
+
+    move = engine.parse("Move file notes.txt to Downloads")
+    assert move.intent == "move_file"
+    assert "notes" in move.entities.get("source", "").lower()
+    assert "download" in move.entities.get("destination", "").lower()
 
 
 def test_click_button_and_fill_form():

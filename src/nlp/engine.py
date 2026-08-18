@@ -149,8 +149,22 @@ class NLPEngine:
         if not raw:
             return ParsedCommand(raw_text=text, intent="unknown", confidence=0.0)
 
+        # Keep copy/move "… and paste … to …" as one command (do not split on "and")
+        copy_paste = bool(
+            re.search(
+                r"\b(copy|move|paste)\b.+\b(to|into|in)\b",
+                raw,
+                flags=re.I,
+            )
+            or re.search(r"\bcopy\b.+\band\s+paste\b", raw, flags=re.I)
+        )
+
         # Split on " and " only when it joins commands (not inside quoted text)
-        if re.search(r"\band\b", raw, flags=re.I) and not re.search(r"[\"'].*\band\b.*[\"']", raw, flags=re.I):
+        if (
+            not copy_paste
+            and re.search(r"\band\b", raw, flags=re.I)
+            and not re.search(r"[\"'].*\band\b.*[\"']", raw, flags=re.I)
+        ):
             parts = re.split(r"\band\b", raw, flags=re.I)
             steps: List[Dict[str, Any]] = []
             confidences: List[float] = []
@@ -222,6 +236,12 @@ class NLPEngine:
             intent, confidence = "unknown", 0.15
         if intent == "search_web" and not entities.get("query"):
             intent, confidence = "unknown", 0.15
+        if intent in ("copy_file", "move_file") and not (
+            entities.get("source") and entities.get("destination")
+        ):
+            intent, confidence = "unknown", 0.15
+        if intent == "run_workflow" and not entities.get("workflow"):
+            intent, confidence = "unknown", 0.15
 
         return ParsedCommand(
             raw_text=text,
@@ -234,8 +254,37 @@ class NLPEngine:
         )
 
     def _classify_intent(self, lemmas: List[str], lower: str) -> Tuple[str, float]:
+        # Copy / move / paste file (before generic "and" / open handling)
+        if re.search(
+            r"\b(copy|move|paste)\b.+\b(to|into|in)\b",
+            lower,
+        ) or re.search(r"\bcopy\b.+\band\s+paste\b", lower):
+            if "move" in lemmas and "copy" not in lemmas and "paste" not in lemmas:
+                return "move_file", 0.94
+            return "copy_file", 0.94
+
         if re.search(r"\b(run|replay|execute)\s+(workflow|macro)\b", lower):
             return "run_workflow", 0.95
+        # "run Morning Study Setup" / "execute Open Notepad Demo"
+        m_run = re.search(r"\b(run|replay|execute)\s+(.+)$", lower)
+        if m_run:
+            name = m_run.group(2).strip()
+            first = name.split()[0] if name else ""
+            blocked = {
+                "chrome",
+                "notepad",
+                "calculator",
+                "calc",
+                "firefox",
+                "edge",
+                "diagnostics",
+                "system",
+                "command",
+                "test",
+            }
+            if name and first not in blocked and first not in _APP_ALIASES:
+                return "run_workflow", 0.9
+
         if re.search(
             r"\bpress\s+(key\s+)?(enter|tab|escape|esc|space|backspace|ctrl\+|alt\+|cmd\+|win\+)",
             lower,
@@ -400,8 +449,47 @@ class NLPEngine:
             m = re.search(r"(?P<seconds>\d+(?:\.\d+)?)", text)
             entities["seconds"] = float(m.group("seconds")) if m else 1.0
         elif intent == "run_workflow":
-            m = re.search(r"\b(?:run|replay|execute)\s+(?:workflow|macro)\s+(.+)$", text, re.I)
-            entities["workflow"] = (m.group(1) if m else "").strip(" \"'")
+            m = re.search(
+                r"\b(?:run|replay|execute)\s+(?:workflow|macro)\s+(.+)$",
+                text,
+                re.I,
+            )
+            if not m:
+                m = re.search(r"\b(?:run|replay|execute)\s+(.+)$", text, re.I)
+            name = (m.group(1) if m else "").strip(" \"'")
+            name = re.sub(r"^(workflow|macro)\s+", "", name, flags=re.I).strip()
+            entities["workflow"] = name
+        elif intent in ("copy_file", "move_file"):
+            src, dst = self._parse_copy_move(text)
+            entities["source"] = src
+            entities["destination"] = dst
         if analysis.get("spacy_ents"):
             entities["ner"] = analysis["spacy_ents"]
         return entities
+
+    def _parse_copy_move(self, text: str) -> Tuple[str, str]:
+        """Extract source and destination from copy/move/paste phrases."""
+        patterns = [
+            # copy file X and paste it to Y
+            r"\b(?:copy|paste)\s+(?:(?:the|a|an|my)\s+)?(?:file|folder|document)?\s*"
+            r"[\"']?(?P<source>.+?)[\"']?\s+and\s+paste(?:\s+it)?\s+(?:to|into|in)\s+"
+            r"[\"']?(?P<dest>.+?)[\"']?\s*$",
+            # copy file X to Y / move file X to Y / paste file X to Y
+            r"\b(?:copy|move|paste)\s+(?:(?:the|a|an|my)\s+)?(?:file|folder|document)?\s*"
+            r"[\"']?(?P<source>.+?)[\"']?\s+(?:to|into|in)\s+"
+            r"[\"']?(?P<dest>.+?)[\"']?\s*$",
+            # copy X to Y (no file keyword)
+            r"\b(?:copy|move|paste)\s+[\"']?(?P<source>.+?)[\"']?\s+(?:to|into|in)\s+"
+            r"[\"']?(?P<dest>.+?)[\"']?\s*$",
+        ]
+        for pat in patterns:
+            m = re.search(pat, text, re.I)
+            if m:
+                src = m.group("source").strip(" \"'")
+                dst = m.group("dest").strip(" \"'")
+                src = re.sub(r"^(file|folder|document)\s+", "", src, flags=re.I).strip()
+                dst = re.sub(r"^(file|folder|document|the|my)\s+", "", dst, flags=re.I).strip()
+                # Drop trailing "it" from awkward speech
+                src = re.sub(r"\s+it$", "", src, flags=re.I).strip()
+                return src, dst
+        return "", ""
