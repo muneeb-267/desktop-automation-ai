@@ -154,16 +154,16 @@ def listen_utterance(
         path = ensure_model(model_dir, status_cb=emit, allow_download=True)
     emit("Listening (offline)… speak now")
     model = Model(str(path))
-    rec = KaldiRecognizer(model, samplerate)
+    rec = KaldiRecognizer(model, 16000)
     rec.SetWords(False)
     deadline = time.time() + max(2.5, float(seconds))
     last_partial = ""
-    with sd.RawInputStream(
-        samplerate=samplerate, blocksize=4000, dtype="int16", channels=1
-    ) as stream:
+    from src.speech.mic_device import open_best_input_stream, read_vosk_chunk
+
+    stream, cap_rate, channels = open_best_input_stream(sd)
+    try:
         while time.time() < deadline:
-            data, _overflow = stream.read(4000)
-            raw = bytes(data)
+            raw = read_vosk_chunk(stream, cap_rate, channels)
             if rec.AcceptWaveform(raw):
                 payload = json.loads(rec.Result() or "{}")
                 text = " ".join(str(payload.get("text") or "").split())
@@ -174,8 +174,14 @@ def listen_utterance(
                 if partial and partial != last_partial:
                     last_partial = partial
                     emit(f"Hearing: {partial}")
-    payload = json.loads(rec.FinalResult() or "{}")
-    text = " ".join(str(payload.get("text") or "").split())
-    if not text:
-        raise RuntimeError("Didn’t catch speech. Say DAI, then your command.")
-    return text
+        payload = json.loads(rec.FinalResult() or "{}")
+        text = " ".join(str(payload.get("text") or "").split())
+        if not text:
+            raise RuntimeError("Didn’t catch speech. Say DAI, then your command.")
+        return text
+    finally:
+        try:
+            stream.stop()
+            stream.close()
+        except Exception:
+            pass

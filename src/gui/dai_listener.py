@@ -56,38 +56,54 @@ class DaiMicThread(QThread):
         self._stop = True
 
     def run(self) -> None:
+        from src.speech.mic_device import (
+            friendly_mic_error,
+            open_best_input_stream,
+            read_vosk_chunk,
+        )
+
         try:
             from vosk import KaldiRecognizer, Model
             import sounddevice as sd
-        except ImportError as exc:
+        except ImportError:
             self.failed.emit(
                 "Offline mic packages missing (vosk/sounddevice). Run FIX_INSTALL.bat."
             )
             return
+
+        stream = None
         try:
             self.status.emit("Loading offline speech…")
             model = Model(str(self.model_path))
             rec = KaldiRecognizer(model, 16000)
             rec.SetWords(False)
+            self.status.emit("Opening microphone…")
+            stream, cap_rate, channels = open_best_input_stream(sd)
             self.status.emit("Mic on — say DAI")
-            with sd.RawInputStream(
-                samplerate=16000, blocksize=4000, dtype="int16", channels=1
-            ) as stream:
-                last_partial = ""
-                while not self._stop:
-                    data, _overflow = stream.read(4000)
-                    raw = bytes(data)
-                    if rec.AcceptWaveform(raw):
-                        payload = json.loads(rec.Result() or "{}")
-                        text = " ".join(str(payload.get("text") or "").split())
-                        if text:
-                            self.heard.emit(text)
-                        last_partial = ""
-                    else:
-                        partial = json.loads(rec.PartialResult() or "{}").get("partial") or ""
-                        partial = " ".join(str(partial).split())
-                        if partial and partial != last_partial:
-                            last_partial = partial
-                            self.partial.emit(partial)
+            last_partial = ""
+            while not self._stop:
+                raw = read_vosk_chunk(stream, cap_rate, channels)
+                if rec.AcceptWaveform(raw):
+                    payload = json.loads(rec.Result() or "{}")
+                    text = " ".join(str(payload.get("text") or "").split())
+                    if text:
+                        self.heard.emit(text)
+                    last_partial = ""
+                else:
+                    partial = json.loads(rec.PartialResult() or "{}").get("partial") or ""
+                    partial = " ".join(str(partial).split())
+                    if partial and partial != last_partial:
+                        last_partial = partial
+                        self.partial.emit(partial)
         except Exception as exc:
-            self.failed.emit(str(exc))
+            self.failed.emit(friendly_mic_error(exc))
+        finally:
+            if stream is not None:
+                try:
+                    stream.stop()
+                except Exception:
+                    pass
+                try:
+                    stream.close()
+                except Exception:
+                    pass

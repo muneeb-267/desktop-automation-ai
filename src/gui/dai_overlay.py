@@ -17,7 +17,7 @@ class DaiOverlay(QWidget):
         flags = Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
-        self.setFixedSize(300, 118)
+        self.setFixedSize(320, 140)
         self._drag: QPoint | None = None
         self._hidden_for_action = False
 
@@ -48,7 +48,7 @@ class DaiOverlay(QWidget):
         self.hint.setObjectName("daiHint")
         self.hint.setWordWrap(True)
 
-        self.retry = QPushButton("Install mic + retry")
+        self.retry = QPushButton("Retry mic")
         self.retry.setObjectName("daiRetry")
         self.retry.setMinimumHeight(26)
         self.retry.clicked.connect(self.retry_requested.emit)
