@@ -22,8 +22,13 @@ class DaiSetupThread(QThread):
 
     def run(self) -> None:
         try:
-            from src.speech.offline_stt import default_model_dir, ensure_model
+            from src.speech.offline_stt import (
+                default_model_dir,
+                ensure_model,
+                ensure_offline_packages,
+            )
 
+            ensure_offline_packages(status_cb=self.status.emit)
             path = ensure_model(
                 default_model_dir(self.config),
                 status_cb=self.status.emit,

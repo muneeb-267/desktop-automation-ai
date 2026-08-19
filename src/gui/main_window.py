@@ -668,9 +668,11 @@ class MainWindow(QMainWindow):
                 self._dai_overlay.show()
                 self._dai_overlay.raise_()
             return
+        self._dai_thread = None
         if self._dai_overlay is None:
             self._dai_overlay = DaiOverlay()
             self._dai_overlay.close_requested.connect(self._hide_dai_overlay)
+            self._dai_overlay.retry_requested.connect(self._start_dai_listener)
             self._dai_overlay.place_corner()
         self._dai_overlay.show()
         self._dai_overlay.set_mode("sleep", "Preparing offline speech…")

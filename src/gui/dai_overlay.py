@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidg
 
 class DaiOverlay(QWidget):
     close_requested = pyqtSignal()
+    retry_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -16,7 +17,7 @@ class DaiOverlay(QWidget):
         flags = Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
-        self.setFixedSize(280, 92)
+        self.setFixedSize(300, 118)
         self._drag: QPoint | None = None
         self._hidden_for_action = False
 
@@ -47,9 +48,16 @@ class DaiOverlay(QWidget):
         self.hint.setObjectName("daiHint")
         self.hint.setWordWrap(True)
 
+        self.retry = QPushButton("Install mic + retry")
+        self.retry.setObjectName("daiRetry")
+        self.retry.setMinimumHeight(26)
+        self.retry.clicked.connect(self.retry_requested.emit)
+        self.retry.hide()
+
         root.addLayout(top)
         root.addWidget(self.line)
         root.addWidget(self.hint)
+        root.addWidget(self.retry)
         self.set_mode("sleep")
 
     def place_corner(self) -> None:
@@ -77,8 +85,12 @@ class DaiOverlay(QWidget):
         elif mode == "error":
             self.dot.setStyleSheet("color:#dc2626;font-size:14px;")
             self.line.setText(detail or "Mic error")
+            self.retry.show()
         else:
             self.line.setText(detail or mode)
+            self.retry.hide()
+        if mode != "error" and hasattr(self, "retry"):
+            self.retry.hide()
 
     def hide_for_action(self) -> None:
         self._hidden_for_action = True

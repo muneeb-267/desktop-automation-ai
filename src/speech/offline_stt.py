@@ -96,6 +96,40 @@ def ensure_model(
     return ready
 
 
+def ensure_offline_packages(status_cb: Optional[Callable[[str], None]] = None) -> None:
+    """Install vosk + sounddevice into this Python if they are missing."""
+    emit = status_cb or (lambda _m: None)
+    try:
+        import sounddevice  # noqa: F401
+        import vosk  # noqa: F401
+
+        return
+    except ImportError:
+        pass
+    import subprocess
+    import sys
+
+    emit("Installing offline mic packages (vosk, sounddevice)…")
+    cmd = [sys.executable, "-m", "pip", "install", "vosk", "sounddevice"]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "pip failed").strip().splitlines()
+        tail = err[-1] if err else "pip failed"
+        raise RuntimeError(
+            "Could not install vosk/sounddevice. In the project folder run:\n"
+            ".venv\\Scripts\\python.exe -m pip install vosk sounddevice\n"
+            f"({tail})"
+        )
+    try:
+        import sounddevice  # noqa: F401
+        import vosk  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(
+            "vosk/sounddevice still missing after pip. Run FIX_INSTALL.bat"
+        ) from exc
+    emit("Offline mic packages installed.")
+
+
 def listen_utterance(
     model_dir: Path,
     *,
