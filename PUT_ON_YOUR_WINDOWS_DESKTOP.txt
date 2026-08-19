@@ -14,14 +14,26 @@ IF YOU ALREADY INSTALLED IT — UPDATE THE FILES
 
 FASTEST WAY (ZIP download — first install)
 ------------------------------------------
-1. Open Chrome and go to:
-   https://github.com/muneeb-267/desktop-automation-ai/archive/refs/heads/cursor/desktop-automation-ai-a8ac.zip
+The repo is PRIVATE. Anonymous ZIP links show 404. You must be logged
+into GitHub in the browser (or use GitHub Desktop).
 
-2. Extract the ZIP (right-click → Extract All…) to somewhere easy, e.g.:
+1. Open Chrome, log into GitHub, then go to:
+   https://github.com/muneeb-267/desktop-automation-ai
+
+2. Click the branch menu (says "main") and choose:
+   cursor/desktop-automation-ai-a8ac
+
+3. Click the green Code button → Download ZIP
+
+4. Extract the ZIP (right-click → Extract All…) to somewhere easy, e.g.:
    Desktop\desktop-automation-ai
 
-3. Open that folder and DOUBLE-CLICK:
-   INSTALL_ON_YOUR_WINDOWS_PC.bat
+5. Open that folder and DOUBLE-CLICK:
+   FIX_INSTALL.bat
+   (or INSTALL_ON_YOUR_WINDOWS_PC.bat on a new PC)
+
+To make friend PCs use the old one-click ZIP: GitHub → Settings →
+Change repository visibility → Public.
 
 4. When install finishes, if you do NOT see an icon, DOUBLE-CLICK:
    CREATE_DESKTOP_ICON.bat

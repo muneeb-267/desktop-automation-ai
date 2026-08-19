@@ -51,10 +51,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "}"
 if errorlevel 1 (
   echo.
-  echo ERROR: Could not download update.
-  echo Open this link in Chrome, extract, and replace your folder:
-  echo https://github.com/muneeb-267/desktop-automation-ai/archive/refs/heads/cursor/desktop-automation-ai-a8ac.zip
-  start https://github.com/muneeb-267/desktop-automation-ai/archive/refs/heads/cursor/desktop-automation-ai-a8ac.zip
+  echo ERROR: Could not download the ZIP. This is normal if the GitHub repo is PRIVATE.
+  echo GitHub returns 404 to anyone who is not logged in.
+  echo.
+  echo Do this instead (while logged into GitHub in Chrome):
+  echo   1. Open: https://github.com/muneeb-267/desktop-automation-ai
+  echo   2. Click the branch dropdown and pick: cursor/desktop-automation-ai-a8ac
+  echo   3. Click the green Code button - Download ZIP
+  echo   4. Extract the ZIP to a new folder
+  echo   5. Double-click FIX_INSTALL.bat
+  echo.
+  echo Or in GitHub Desktop: File - Clone repository - that URL, then
+  echo checkout branch cursor/desktop-automation-ai-a8ac
+  echo.
+  echo Optional: make the repo Public so this updater works without login
+  echo   GitHub - Settings - Danger Zone - Change repository visibility
+  echo.
+  start https://github.com/muneeb-267/desktop-automation-ai/tree/cursor/desktop-automation-ai-a8ac
   pause
   exit /b 1
 )
