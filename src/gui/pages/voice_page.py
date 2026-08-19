@@ -56,8 +56,8 @@ class VoiceCommandPage(QWidget):
         t = QLabel("Voice Command")
         t.setObjectName("pageTitle")
         s = QLabel(
-            "Offline DAI: say “DAI”, then commands. Say “DAI close now” to stop. "
-            "Hotkey: Ctrl+Space"
+            "Offline DAI: say “DAI”, then speak — STT shows and the command runs. "
+            "Say “minimize the screen” / “restore”. “DAI close now” stops. Hotkey: Ctrl+Space"
         )
         s.setObjectName("pageSubtitle")
         s.setWordWrap(True)
@@ -83,7 +83,7 @@ class VoiceCommandPage(QWidget):
         self.status.setAlignment(Qt.AlignCenter)
 
         hint = QLabel(
-            "Say DAI · Click Login · Open Chrome · Copy file report to Desktop · DAI close now"
+            "DAI · Click Login · Minimize the screen · Type hello · DAI close now"
         )
         hint.setObjectName("pageSubtitle")
         hint.setAlignment(Qt.AlignCenter)
@@ -178,7 +178,7 @@ class VoiceCommandPage(QWidget):
         show_dai.clicked.connect(self.show_dai_requested.emit)
         rl.addWidget(show_dai)
         rl.addStretch()
-        foot = QLabel("v0.1.11")
+        foot = QLabel("v0.1.12")
         foot.setObjectName("footerLabel")
         rl.addWidget(foot)
 

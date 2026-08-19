@@ -103,33 +103,36 @@ def open_best_input_stream(sd, *, vosk_rate: int = VOSK_RATE):
     rates_try = (16000, 44100, 48000, 32000, 22050)
     for cand in candidates[:8]:
         device = cand["index"]
-        want_rates = []
+        want_rates = [16000]
         if cand.get("rate"):
-            want_rates.append(int(cand["rate"]))
+            r0 = int(cand["rate"])
+            if r0 not in want_rates:
+                want_rates.append(r0)
         for r in rates_try:
             if r not in want_rates:
                 want_rates.append(r)
-        for rate in want_rates:
-            for ch in (1, min(2, int(cand.get("channels") or 1))):
-                try:
-                    stream = sd.RawInputStream(
-                        device=device,
-                        samplerate=rate,
-                        blocksize=0,
-                        dtype="int16",
-                        channels=ch,
-                        latency="high",
-                    )
-                    if not getattr(stream, "active", False):
-                        stream.start()
-                    return stream, int(rate), int(ch)
-                except Exception as exc:
+        for latency in ("low", "high"):
+            for rate in want_rates:
+                for ch in (1, min(2, int(cand.get("channels") or 1))):
                     try:
-                        stream.close()  # type: ignore[name-defined]
-                    except Exception:
-                        pass
-                    errors.append(f"{cand.get('name')} {rate}Hz: {exc}")
-                    continue
+                        stream = sd.RawInputStream(
+                            device=device,
+                            samplerate=rate,
+                            blocksize=0,
+                            dtype="int16",
+                            channels=ch,
+                            latency=latency,
+                        )
+                        if not getattr(stream, "active", False):
+                            stream.start()
+                        return stream, int(rate), int(ch)
+                    except Exception as exc:
+                        try:
+                            stream.close()  # type: ignore[name-defined]
+                        except Exception:
+                            pass
+                        errors.append(f"{cand.get('name')} {rate}Hz {latency}: {exc}")
+                        continue
     detail = errors[-1] if errors else "no input devices"
     raise RuntimeError(friendly_mic_error(RuntimeError(detail)))
 
@@ -154,7 +157,7 @@ def resample_for_vosk(raw: bytes, capture_rate: int, channels: int = 1, vosk_rat
         return pcm
 
 
-def read_vosk_chunk(stream, capture_rate: int, channels: int, *, seconds: float = 0.25) -> bytes:
+def read_vosk_chunk(stream, capture_rate: int, channels: int, *, seconds: float = 0.08) -> bytes:
     frames = max(512, int(capture_rate * seconds))
     data, _overflow = stream.read(frames)
     return resample_for_vosk(bytes(data), capture_rate, channels=channels)

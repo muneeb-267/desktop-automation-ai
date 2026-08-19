@@ -95,6 +95,20 @@ class AutomationPipeline:
 
         emit("Parsing command…")
         parsed = self.nlp.parse(text)
+        # Voice: always turn STT into an action (type if we don't recognize a verb)
+        if parsed.intent == "unknown" and source == "voice" and (parsed.raw_text or text).strip():
+            spoken = (parsed.raw_text or text).strip()
+            parsed.intent = "type_text"
+            parsed.entities = {**(parsed.entities or {}), "text": spoken}
+            parsed.confidence = max(parsed.confidence, 0.4)
+            parsed.steps = [
+                {
+                    "intent": "type_text",
+                    "entities": dict(parsed.entities),
+                    "confidence": parsed.confidence,
+                }
+            ]
+
         command_id = self.nlp_repo.create(
             raw_text=text,
             parsed_intent=parsed.intent,
@@ -121,6 +135,8 @@ class AutomationPipeline:
                 "run_workflow",
                 "copy_file",
                 "move_file",
+                "minimize_window",
+                "restore_window",
             )
         ):
             duration = int((time.perf_counter() - started) * 1000)
@@ -456,6 +472,10 @@ class AutomationPipeline:
 
         if intent == "wait":
             result["automation"] = self.automation.wait(float(entities.get("seconds", 1)))
+            return result
+
+        if intent in ("minimize_window", "restore_window"):
+            result["note"] = "handled by the DAI window"
             return result
 
         if intent == "search_web":

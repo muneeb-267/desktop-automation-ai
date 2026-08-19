@@ -6,6 +6,8 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.speech.wake import clean_spoken_command
+
 # Shared lazy handles so the app doesn't reload models repeatedly
 _SPACY_NLP = None
 _SPACY_TRIED = False
@@ -145,7 +147,8 @@ class NLPEngine:
         }
 
     def parse(self, text: str) -> ParsedCommand:
-        raw = " ".join(text.strip().split())
+        raw = clean_spoken_command(text)
+        raw = " ".join(raw.split())
         if not raw:
             return ParsedCommand(raw_text=text, intent="unknown", confidence=0.0)
 
@@ -292,6 +295,12 @@ class NLPEngine:
             return "press_key", 0.9
         if "scroll" in lemmas or lower.startswith("scroll"):
             return "scroll", 0.9
+        if re.search(r"\b(minimize|minimise)\b", lower) or re.search(
+            r"\bhide\s+(the\s+)?(screen|window|app)\b", lower
+        ):
+            return "minimize_window", 0.96
+        if re.search(r"\b(restore|maximize|maximise|unminimize)\b", lower):
+            return "restore_window", 0.95
         if any(w in lemmas for w in ("wait", "pause", "sleep")):
             return "wait", 0.93
         # Open file / folder / document before generic open_app
@@ -332,7 +341,7 @@ class NLPEngine:
             return "fill_form", 0.92
         if any(w in lemmas for w in ("click", "tap")):
             return "click_text", 0.88
-        if any(w in lemmas for w in ("type", "write", "fill")) or (
+        if any(w in lemmas for w in ("type", "write", "fill", "say", "dictate")) or (
             "enter" in lemmas and not re.search(r"\bpress\s+enter\b", lower)
         ):
             return "type_text", 0.86
@@ -416,7 +425,7 @@ class NLPEngine:
                 entities["text"] = (m2.group("text") if m2 else "").strip(" \"'")
         elif intent == "type_text":
             m = re.search(
-                r"\b(?:type|enter|write|fill)\s+(?:(?:in|into|the)\s+(?P<field>.+?)\s+with\s+)?[\"']?(?P<text>.+?)[\"']?\s*$",
+                r"\b(?:type|enter|write|fill|say|dictate)\s+(?:(?:in|into|the)\s+(?P<field>.+?)\s+with\s+)?[\"']?(?P<text>.+?)[\"']?\s*$",
                 text,
                 re.I,
             )

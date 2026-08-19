@@ -54,6 +54,12 @@ def test_text_command_dry_run(tmp_path: Path):
     # May fail if file missing — dry_run still resolves destinations; accept ok or clear error
     assert copy["parsed"]["intent"] == "copy_file"
 
+    voiced = pipeline.run_text_command(
+        "asdf qwer zxcv", user_id=user_id, source="voice"
+    )
+    assert voiced["parsed"]["intent"] == "type_text"
+    assert voiced["ok"] is True
+
     db.close()
     reset_database_singleton()
 

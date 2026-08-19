@@ -35,16 +35,13 @@ into GitHub in the browser (or use GitHub Desktop).
 To make friend PCs use the old one-click ZIP: GitHub → Settings →
 Change repository visibility → Public.
 
-4. When install finishes, if you do NOT see an icon, DOUBLE-CLICK:
+6. When install finishes, if you do NOT see an icon, DOUBLE-CLICK:
    CREATE_DESKTOP_ICON.bat
-   (This only creates the Desktop icon — no reinstall.)
 
-5. You should see on Desktop:
-   Automate AI
-   or Automate AI.bat
-   Press F5 to refresh the Desktop if needed.
+7. You should see on Desktop:  Automate AI  or  Automate AI.bat
+   Press F5 on the Desktop if needed.
 
-6. Double-click it → Sign Up Now with YOUR username/password.
+8. Double-click it → Sign Up Now with YOUR username/password.
 
 
 IF THE ICON IS STILL MISSING
@@ -88,13 +85,24 @@ After login a small DAI window sits on the desktop.
 1. First install/update MUST be online once (downloads a ~40 MB speech model)
 2. After that, disconnect — voice still works
 3. Say:  DAI
-4. Then: Click Login   /   Open notepad   /   Type hello
+   The pill shows live STT (what it heard), then it EXECUTES.
+4. Then speak commands, for example:
+     Click Login
+     Open notepad
+     Type hello
+     Minimize the screen     ← hides the Automate AI window (DAI keeps listening)
+     Restore                 ← brings the window back
+     Again                   ← repeats the last command
 5. Say:  DAI close now
    to stop the session (window stays; say DAI again to resume)
 
 If the window is hidden: Voice Command → Show DAI window
 
 Windows: allow microphone for Python / Automate AI in Settings → Privacy → Microphone.
+
+Voice is never 100% perfect, but this build is faster (short audio chunks +
+run as soon as a full command is heard) and more reliable (wake grammar,
+filler stripping, unknown speech is typed as text).
 
 
 LOGIN

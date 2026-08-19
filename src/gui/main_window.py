@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any, Dict, Optional
 
 from PyQt5.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve, QTimer
@@ -42,7 +43,7 @@ from src.gui.pages.workflows_page import WorkflowsPage
 from src.gui.styles import get_app_style
 from src.gui.window_fit import apply_standard_window_chrome, fit_to_screen
 from src.gui.workers import CommandWorker, SpeechWorker, WorkflowWorker
-from src.speech.wake import classify_utterance
+from src.speech.wake import classify_utterance, clean_spoken_command
 
 
 class MainWindow(QMainWindow):
@@ -83,6 +84,8 @@ class MainWindow(QMainWindow):
         self._dai_active = False
         self._dai_queue: list = []
         self._live_desktop = False
+        self._dai_last_cmd = ""
+        self._dai_last_at = 0.0
         self._nav_buttons: Dict[str, QPushButton] = {}
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
@@ -389,6 +392,35 @@ class MainWindow(QMainWindow):
     def _run_command(self, text: str, *, source: str = "text", live_desktop: bool = False) -> None:
         if not text.strip():
             return
+        spoken = clean_spoken_command(text)
+        kind, payload = classify_utterance(spoken, session_active=True)
+        if kind == "minimize":
+            if self._dai_overlay:
+                self._dai_overlay.show()
+                self._dai_overlay.set_mode("active", "Minimized — still listening")
+            self.showMinimized()
+            QApplication.processEvents()
+            self.page_voice.set_status_message("✓ Minimized (DAI still listening)")
+            return
+        if kind == "restore":
+            self.showNormal()
+            self.raise_()
+            self.activateWindow()
+            if self._dai_overlay:
+                self._dai_overlay.show()
+                self._dai_overlay.set_mode("active", "Window restored")
+            return
+        if kind == "repeat":
+            if not self._dai_last_cmd:
+                if self._dai_overlay:
+                    self._dai_overlay.set_mode("active", "Nothing to repeat")
+                return
+            text = self._dai_last_cmd
+        elif kind in ("command", "wake") and payload:
+            text = payload
+        else:
+            text = spoken or text
+
         if self._busy():
             if live_desktop:
                 self._dai_queue.append(text)
@@ -396,14 +428,15 @@ class MainWindow(QMainWindow):
                     self._dai_overlay.set_mode("busy", f"Queued: {text}")
             return
         self._live_desktop = live_desktop
+        self._dai_last_cmd = text
         if not live_desktop and self._current_page != "voice":
             self._show_page("voice")
         self.page_voice.set_command_text(text)
         mode = "LIVE" if not self.pipeline.automation.dry_run else "dry-run"
         self.page_voice.set_busy(True)
-        self.page_voice.set_status_message(f"● Running ({mode})…")
+        self.page_voice.set_status_message(f"STT: {text}  ·  Running ({mode})…")
         if self._dai_overlay and live_desktop:
-            self._dai_overlay.set_mode("busy", f"Doing: {text}")
+            self._dai_overlay.set_mode("busy", f"STT → {text}")
         # Hide chrome so live clicks land on the real desktop
         if not self.pipeline.automation.dry_run and (
             live_desktop or self._needs_desktop_focus(text)
@@ -709,27 +742,59 @@ class MainWindow(QMainWindow):
     def _on_dai_partial(self, text: str) -> None:
         if self._dai_overlay and text:
             if self._dai_active:
-                self._dai_overlay.set_mode("active", f"Hearing: {text}")
+                self._dai_overlay.set_mode("active", f"STT: {text}")
             elif classify_utterance(text, session_active=False)[0] == "wake":
                 self._dai_overlay.set_mode("sleep", "Hearing DAI…")
 
     def _on_dai_heard(self, text: str) -> None:
+        now = time.monotonic()
         kind, command = classify_utterance(text, session_active=self._dai_active)
+        if self._dai_overlay and kind != "ignore":
+            self._dai_overlay.hint.setText(f"Heard: {text}")
         if kind == "ignore":
             return
+        if command and command == self._dai_last_cmd and (now - self._dai_last_at) < 1.1:
+            return
+        self._dai_last_at = now
         if kind == "close":
             self._dai_active = False
             self._dai_queue.clear()
+            if self._dai_thread is not None:
+                self._dai_thread.set_session_active(False)
             if self._dai_overlay:
                 self._dai_overlay.set_mode("sleep", "Session closed. Say “DAI” to start")
             self.page_voice.set_status_message("DAI session closed")
             return
+        if kind == "minimize":
+            self._dai_active = True
+            if self._dai_thread is not None:
+                self._dai_thread.set_session_active(True)
+            self.showMinimized()
+            if self._dai_overlay:
+                self._dai_overlay.show()
+                self._dai_overlay.set_mode("active", "Minimized — say commands")
+            return
+        if kind == "restore":
+            self._dai_active = True
+            if self._dai_thread is not None:
+                self._dai_thread.set_session_active(True)
+            self.showNormal()
+            self.raise_()
+            if self._dai_overlay:
+                self._dai_overlay.set_mode("active", "Restored")
+            return
+        if kind == "repeat":
+            if self._dai_last_cmd:
+                self._run_command(self._dai_last_cmd, source="voice", live_desktop=True)
+            return
         if kind == "wake":
             self._dai_active = True
+            if self._dai_thread is not None:
+                self._dai_thread.set_session_active(True)
             if self._dai_overlay:
                 self._dai_overlay.set_mode(
                     "active",
-                    f"Doing: {command}" if command else "Listening — speak commands",
+                    f"STT → {command}" if command else "Listening — speak, I will STT + execute",
                 )
             if command:
                 self._run_command(command, source="voice", live_desktop=True)

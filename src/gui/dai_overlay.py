@@ -44,7 +44,7 @@ class DaiOverlay(QWidget):
         self.line.setObjectName("daiLine")
         self.line.setWordWrap(True)
 
-        self.hint = QLabel("Then click / open / type until “DAI close now”")
+        self.hint = QLabel("STT + execute · “minimize the screen” · “DAI close now”")
         self.hint.setObjectName("daiHint")
         self.hint.setWordWrap(True)
 

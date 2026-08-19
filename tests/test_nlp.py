@@ -95,3 +95,13 @@ def test_spacy_nltk_tokenization():
     assert parsed.intent == "open_app"
     assert parsed.entities.get("app") == "notepad"
 
+
+def test_minimize_restore_and_spoken_fillers():
+    engine = NLPEngine()
+    assert engine.parse("minimize the screen").intent == "minimize_window"
+    assert engine.parse("please click login").intent == "click_text"
+    spoken = engine.parse("say hello world")
+    assert spoken.intent == "type_text"
+    assert "hello" in spoken.entities.get("text", "").lower()
+    assert engine.parse("restore the window").intent == "restore_window"
+
