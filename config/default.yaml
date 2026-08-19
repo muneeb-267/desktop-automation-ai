@@ -2,7 +2,7 @@ app:
   name: "Automate AI"
   product_name: "AI Desktop Automation"
   group_id: "S26CS089"
-  version: "0.1.10-alpha"
+  version: "0.1.11-alpha"
   tagline: "Control your desktop using voice commands."
 
 paths:
@@ -11,6 +11,7 @@ paths:
   captures_dir: "data/captures"
   templates_dir: "assets/templates"
   logs_dir: "data/logs"
+  models_dir: "data/models"
 
 ui:
   theme: "light"
@@ -20,8 +21,10 @@ ui:
   min_height: 560
 
 speech:
-  # auto = Chrome Web Speech first (no USB mic), then hardware mic + Whisper/Gemini/Google
+  # auto = offline Vosk (no internet) first, then Chrome, then laptop mic
   engine: auto
+  wake_word: DAI
+  overlay: true
   ambient_seconds: 0.08
   phrase_time_limit: 3.5
   listen_timeout: 3.5

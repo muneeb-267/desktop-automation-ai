@@ -66,12 +66,13 @@ if errorlevel 1 (
   echo     Voice will use Chrome on this PC. Continue...
 )
 
-echo [5/6] NLP model + folders + database
-python -m pip install PyYAML >nul 2>&1
+echo [5/6] NLP model + folders + database + offline speech
+python -m pip install PyYAML vosk sounddevice >nul 2>&1
 python -m spacy download en_core_web_sm >nul 2>&1
 python -c "import nltk; [nltk.download(p, quiet=True) for p in ('punkt','punkt_tab','averaged_perceptron_tagger','averaged_perceptron_tagger_eng')]" 2>nul
 if not exist data\captures mkdir data\captures
 if not exist data\logs mkdir data\logs
+if not exist data\models mkdir data\models
 if not exist assets\templates mkdir assets\templates
 
 python -c "import yaml, PyQt5; print('Core imports OK')"
@@ -90,6 +91,12 @@ if errorlevel 1 (
   echo ERROR: Database setup failed. See the message above.
   pause
   exit /b 1
+)
+
+echo Downloading offline speech model (one-time ~40MB, then works without internet)...
+python -c "from src.speech.offline_stt import ensure_model, default_model_dir; from src.config import load_config; print('Speech model:', ensure_model(default_model_dir(load_config())))"
+if errorlevel 1 (
+  echo [i] Could not download speech model now. Connect once and run FIX_INSTALL.bat.
 )
 
 echo [6/6] Creating Desktop icon
@@ -122,7 +129,8 @@ echo.
 echo   Look on the Desktop for:  Automate AI   or   Automate AI.bat
 echo   Press F5 on the Desktop if it does not appear yet.
 echo.
-echo   Voice: Chrome (no USB mic needed). PyAudio is optional.
+echo   Voice: small DAI window — say DAI, then commands. Say DAI close now to stop.
+echo   Offline after the speech model is downloaded once.
 echo   Then Sign Up with a username + password on THIS PC.
 echo  ========================================================
 echo.

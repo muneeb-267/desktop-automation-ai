@@ -239,6 +239,19 @@ QScrollBar::handle:vertical {
     background: #cbd5e1; border-radius: 5px; min-height: 30px;
 }
 #footerLabel { color: #94a3b8; font-size: 11px; }
+#daiOverlay {
+    background: #0f172a;
+    color: #f8fafc;
+    border-radius: 14px;
+    border: 1px solid #334155;
+}
+#daiTitle { font-size: 15px; font-weight: 800; color: #f8fafc; }
+#daiLine { font-size: 12px; font-weight: 600; color: #e2e8f0; }
+#daiHint { font-size: 10px; color: #94a3b8; }
+#daiHide {
+    background: #1e293b; color: #e2e8f0; border: none; border-radius: 6px;
+    padding: 0; font-weight: 700;
+}
 #logFrame {
     border: 1px solid #1e293b;
     border-radius: 8px;
@@ -379,6 +392,16 @@ QSlider::handle:horizontal {
 QCheckBox { spacing: 8px; color: #e2e8f0; }
 QScrollArea { border: none; background: transparent; }
 #footerLabel { color: #64748b; font-size: 11px; }
+#daiOverlay {
+    background: #020617;
+    color: #e2e8f0;
+    border-radius: 14px;
+    border: 1px solid #334155;
+}
+#daiTitle { font-size: 15px; font-weight: 800; color: #f8fafc; }
+#daiLine { font-size: 12px; font-weight: 600; color: #e2e8f0; }
+#daiHint { font-size: 10px; color: #94a3b8; }
+#daiHide { background: #1e293b; color: #e2e8f0; border: none; border-radius: 6px; }
 #logFrame { border: 1px solid #334155; border-radius: 8px; background: #020617; }
 #sectionTitle { font-size: 14px; font-weight: 700; color: #f8fafc; }
 """

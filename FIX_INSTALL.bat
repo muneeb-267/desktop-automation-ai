@@ -57,7 +57,15 @@ if errorlevel 1 (
 )
 
 echo.
-echo Preparing database and NLP model...
+echo Offline speech (DAI listener — works without internet after this)...
+"%PY%" -m pip install vosk sounddevice
+if not exist data\models mkdir data\models
+"%PY%" -c "from src.speech.offline_stt import ensure_model, default_model_dir; from src.config import load_config; print('Speech model:', ensure_model(default_model_dir(load_config())))"
+if errorlevel 1 (
+  echo [i] Speech model download skipped. Connect once, then run FIX_INSTALL.bat again.
+)
+
+echo.
 "%PY%" -m spacy download en_core_web_sm
 "%PY%" -c "import nltk; [nltk.download(p, quiet=True) for p in ('punkt','punkt_tab','averaged_perceptron_tagger','averaged_perceptron_tagger_eng')]"
 if not exist data\captures mkdir data\captures

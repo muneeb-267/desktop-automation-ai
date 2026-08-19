@@ -69,6 +69,22 @@ Install Tesseract OCR:
 https://github.com/UB-Mannheim/tesseract/wiki
 
 
+DAI LISTENER (always-on, works offline)
+---------------------------------------
+After login a small DAI window sits on the desktop.
+
+1. First install/update MUST be online once (downloads a ~40 MB speech model)
+2. After that, disconnect — voice still works
+3. Say:  DAI
+4. Then: Click Login   /   Open notepad   /   Type hello
+5. Say:  DAI close now
+   to stop the session (window stays; say DAI again to resume)
+
+If the window is hidden: Voice Command → Show DAI window
+
+Windows: allow microphone for Python / Automate AI in Settings → Privacy → Microphone.
+
+
 LOGIN
 -----
 There is NO demo account.

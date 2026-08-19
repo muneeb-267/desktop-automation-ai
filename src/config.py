@@ -27,7 +27,7 @@ def resolve_path(relative: str) -> Path:
 
 def ensure_runtime_dirs(config: Dict[str, Any]) -> None:
     paths = config.get("paths", {})
-    for key in ("data_dir", "captures_dir", "templates_dir", "logs_dir"):
+    for key in ("data_dir", "captures_dir", "templates_dir", "logs_dir", "models_dir"):
         rel = paths.get(key)
         if rel:
             resolve_path(rel).mkdir(parents=True, exist_ok=True)

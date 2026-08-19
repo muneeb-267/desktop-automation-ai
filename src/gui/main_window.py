@@ -32,6 +32,8 @@ from src.db.repositories import (
     TaskRepository,
     UserConfRepository,
 )
+from src.gui.dai_listener import DaiMicThread, DaiSetupThread
+from src.gui.dai_overlay import DaiOverlay
 from src.gui.pages.dashboard_page import DashboardPage
 from src.gui.pages.history_page import HistoryPage
 from src.gui.pages.settings_page import SettingsPage
@@ -40,6 +42,7 @@ from src.gui.pages.workflows_page import WorkflowsPage
 from src.gui.styles import get_app_style
 from src.gui.window_fit import apply_standard_window_chrome, fit_to_screen
 from src.gui.workers import CommandWorker, SpeechWorker, WorkflowWorker
+from src.speech.wake import classify_utterance
 
 
 class MainWindow(QMainWindow):
@@ -74,6 +77,12 @@ class MainWindow(QMainWindow):
         self._command_worker: Optional[CommandWorker] = None
         self._workflow_worker: Optional[WorkflowWorker] = None
         self._speech_worker: Optional[SpeechWorker] = None
+        self._dai_thread = None
+        self._dai_setup = None
+        self._dai_overlay = None
+        self._dai_active = False
+        self._dai_queue: list = []
+        self._live_desktop = False
         self._nav_buttons: Dict[str, QPushButton] = {}
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
@@ -87,6 +96,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Space"), self, activated=self._listen)
         self._show_page("dashboard")
         self.schedule_refresh(immediate=True)
+        QTimer.singleShot(600, self._start_dai_listener)
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -210,6 +220,7 @@ class MainWindow(QMainWindow):
         self.page_workflows.record_stop_save_requested.connect(self._stop_workflow_recording)
 
         self.page_settings.save_requested.connect(self._save_settings)
+        self.page_voice.show_dai_requested.connect(self._start_dai_listener)
 
     def _show_page(self, key: str) -> None:
         mapping = {
@@ -251,7 +262,12 @@ class MainWindow(QMainWindow):
             gemini_key=str(conf.get("gemini_api_key") or speech_cfg.get("gemini_api_key") or ""),
         )
         cloud = self.speech.cloud_status()
-        bits = ["Chrome/Edge voice (ready — no extra mic library)"]
+        bits = ["Offline DAI (say DAI)"]
+        if cloud["openai"]:
+            bits.append("Whisper")
+        if cloud["gemini"]:
+            bits.append("Gemini")
+        bits.append("Chrome fallback")
         if cloud["openai"]:
             bits.append("Whisper")
         if cloud["gemini"]:
@@ -278,7 +294,12 @@ class MainWindow(QMainWindow):
         if values.get("theme"):
             self._apply_theme(str(values["theme"]))
         cloud = self.speech.cloud_status()
-        bits = ["Chrome/Edge voice (ready — no extra mic library)"]
+        bits = ["Offline DAI (say DAI)"]
+        if cloud["openai"]:
+            bits.append("Whisper")
+        if cloud["gemini"]:
+            bits.append("Gemini")
+        bits.append("Chrome fallback")
         if cloud["openai"]:
             bits.append("Whisper")
         if cloud["gemini"]:
@@ -365,20 +386,32 @@ class MainWindow(QMainWindow):
             return True
         return False
 
-    def _run_command(self, text: str, *, source: str = "text") -> None:
-        if not text.strip() or self._busy():
+    def _run_command(self, text: str, *, source: str = "text", live_desktop: bool = False) -> None:
+        if not text.strip():
             return
-        if self._current_page != "voice":
+        if self._busy():
+            if live_desktop:
+                self._dai_queue.append(text)
+                if self._dai_overlay:
+                    self._dai_overlay.set_mode("busy", f"Queued: {text}")
+            return
+        self._live_desktop = live_desktop
+        if not live_desktop and self._current_page != "voice":
             self._show_page("voice")
         self.page_voice.set_command_text(text)
         mode = "LIVE" if not self.pipeline.automation.dry_run else "dry-run"
         self.page_voice.set_busy(True)
         self.page_voice.set_status_message(f"● Running ({mode})…")
-        # Only minimize when we must interact with on-screen UI
-        if not self.pipeline.automation.dry_run and self._needs_desktop_focus(text):
+        if self._dai_overlay and live_desktop:
+            self._dai_overlay.set_mode("busy", f"Doing: {text}")
+        # Hide chrome so live clicks land on the real desktop
+        if not self.pipeline.automation.dry_run and (
+            live_desktop or self._needs_desktop_focus(text)
+        ):
+            if self._dai_overlay:
+                self._dai_overlay.hide_for_action()
             self.showMinimized()
             QApplication.processEvents()
-        # Keep accumulating when recording a workflow; otherwise reset per command
         if not self.pipeline.automation.recording:
             self.pipeline.automation.clear_history()
         self._command_worker = CommandWorker(
@@ -391,19 +424,33 @@ class MainWindow(QMainWindow):
 
     def _on_command_done(self, result: dict) -> None:
         self.page_voice.set_busy(False)
-        if self.isMinimized():
+        live = self._live_desktop
+        self._live_desktop = False
+        if self._dai_overlay:
+            self._dai_overlay.show_after_action()
+        if self.isMinimized() and not live:
             self.showNormal()
             self.raise_()
             self.activateWindow()
         if result.get("ok"):
             mode = "dry-run" if result.get("dry_run") else "live"
             self.page_voice.set_status_message(f"✓ Completed successfully ({mode})")
+            if self._dai_overlay and self._dai_active:
+                self._dai_overlay.set_mode("active", "Listening — next command")
         else:
             self.page_voice.set_status_message(f"✗ {result.get('error') or 'Failed'}")
+            if self._dai_overlay:
+                self._dai_overlay.set_mode(
+                    "active" if self._dai_active else "sleep",
+                    result.get("error") or "Failed",
+                )
         if self.pipeline.automation.recording:
             n = len(self.pipeline.automation.session_history)
             self.page_workflows.set_recording(True, step_count=n)
         self.schedule_refresh()
+        if live and self._dai_queue:
+            nxt = self._dai_queue.pop(0)
+            QTimer.singleShot(80, lambda: self._run_command(nxt, source="voice", live_desktop=True))
 
     def _stop_workers(self) -> None:
         self.pipeline.request_stop()
@@ -418,7 +465,7 @@ class MainWindow(QMainWindow):
             return
         self._show_page("voice")
         self.page_voice.set_listening(True)
-        self.page_voice.set_status_message("● Starting Chrome voice…")
+        self.page_voice.set_status_message("● Starting voice…")
         self._speech_worker = SpeechWorker(self.speech, parent=self)
         self._speech_worker.status.connect(self.page_voice.set_status_message)
         self._speech_worker.failed.connect(self._on_speech_fail)
@@ -608,8 +655,96 @@ class MainWindow(QMainWindow):
         self.refresh_all()
 
     def shutdown(self) -> None:
+        self._stop_dai_listener()
         for worker in (self._command_worker, self._workflow_worker, self._speech_worker):
             if worker is not None and worker.isRunning():
                 if hasattr(worker, "stop"):
                     worker.stop()
                 worker.wait(1200)
+
+    def _start_dai_listener(self) -> None:
+        if self._dai_thread is not None and self._dai_thread.isRunning():
+            if self._dai_overlay:
+                self._dai_overlay.show()
+                self._dai_overlay.raise_()
+            return
+        if self._dai_overlay is None:
+            self._dai_overlay = DaiOverlay()
+            self._dai_overlay.close_requested.connect(self._hide_dai_overlay)
+            self._dai_overlay.place_corner()
+        self._dai_overlay.show()
+        self._dai_overlay.set_mode("sleep", "Preparing offline speech…")
+        self._dai_setup = DaiSetupThread(self.config, parent=self)
+        self._dai_setup.status.connect(
+            lambda m: self._dai_overlay.set_mode("sleep", m) if self._dai_overlay else None
+        )
+        self._dai_setup.failed.connect(self._on_dai_setup_fail)
+        self._dai_setup.ready.connect(self._on_dai_model_ready)
+        self._dai_setup.start()
+
+    def _on_dai_setup_fail(self, message: str) -> None:
+        if self._dai_overlay:
+            self._dai_overlay.set_mode("error", message)
+        self.page_voice.set_status_message(f"DAI overlay: {message}")
+
+    def _on_dai_model_ready(self, model_path: str) -> None:
+        self._dai_thread = DaiMicThread(model_path, parent=self)
+        self._dai_thread.heard.connect(self._on_dai_heard)
+        self._dai_thread.partial.connect(self._on_dai_partial)
+        self._dai_thread.status.connect(
+            lambda m: self._dai_overlay.set_mode(
+                "active" if self._dai_active else "sleep", m
+            )
+            if self._dai_overlay
+            else None
+        )
+        self._dai_thread.failed.connect(self._on_dai_setup_fail)
+        self._dai_thread.start()
+        if self._dai_overlay:
+            self._dai_overlay.set_mode("sleep", "Say “DAI” to start")
+        self.page_voice.set_engine_label("Engine: Offline DAI — say DAI (no internet)")
+
+    def _on_dai_partial(self, text: str) -> None:
+        if self._dai_overlay and text:
+            if self._dai_active:
+                self._dai_overlay.set_mode("active", f"Hearing: {text}")
+            elif classify_utterance(text, session_active=False)[0] == "wake":
+                self._dai_overlay.set_mode("sleep", "Hearing DAI…")
+
+    def _on_dai_heard(self, text: str) -> None:
+        kind, command = classify_utterance(text, session_active=self._dai_active)
+        if kind == "ignore":
+            return
+        if kind == "close":
+            self._dai_active = False
+            self._dai_queue.clear()
+            if self._dai_overlay:
+                self._dai_overlay.set_mode("sleep", "Session closed. Say “DAI” to start")
+            self.page_voice.set_status_message("DAI session closed")
+            return
+        if kind == "wake":
+            self._dai_active = True
+            if self._dai_overlay:
+                self._dai_overlay.set_mode(
+                    "active",
+                    f"Doing: {command}" if command else "Listening — speak commands",
+                )
+            if command:
+                self._run_command(command, source="voice", live_desktop=True)
+            return
+        if kind == "command" and command:
+            self._run_command(command, source="voice", live_desktop=True)
+
+    def _hide_dai_overlay(self) -> None:
+        if self._dai_overlay:
+            self._dai_overlay.hide()
+
+    def _stop_dai_listener(self) -> None:
+        self._dai_active = False
+        if self._dai_thread is not None:
+            self._dai_thread.stop()
+            self._dai_thread.wait(1500)
+            self._dai_thread = None
+        if self._dai_overlay is not None:
+            self._dai_overlay.close()
+            self._dai_overlay = None

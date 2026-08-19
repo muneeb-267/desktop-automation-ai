@@ -30,6 +30,7 @@ class VoiceCommandPage(QWidget):
     rerun_requested = pyqtSignal(str)
     sensitivity_changed = pyqtSignal(float)
     stop_requested = pyqtSignal()
+    show_dai_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -55,7 +56,8 @@ class VoiceCommandPage(QWidget):
         t = QLabel("Voice Command")
         t.setObjectName("pageTitle")
         s = QLabel(
-            "Speak or type — open apps/files, copy files, run workflows. Hotkey: Ctrl+Space"
+            "Offline DAI: say “DAI”, then commands. Say “DAI close now” to stop. "
+            "Hotkey: Ctrl+Space"
         )
         s.setObjectName("pageSubtitle")
         s.setWordWrap(True)
@@ -81,7 +83,7 @@ class VoiceCommandPage(QWidget):
         self.status.setAlignment(Qt.AlignCenter)
 
         hint = QLabel(
-            "Examples: Open Chrome · Copy file report to Desktop · Run Morning Setup · Click Login"
+            "Say DAI · Click Login · Open Chrome · Copy file report to Desktop · DAI close now"
         )
         hint.setObjectName("pageSubtitle")
         hint.setAlignment(Qt.AlignCenter)
@@ -167,12 +169,16 @@ class VoiceCommandPage(QWidget):
             lambda v: self.sensitivity_changed.emit(v / 100.0)
         )
         rl.addWidget(self.sensitivity)
-        self.conf_lbl = QLabel("Engine: Chrome / Edge voice (ready)")
+        self.conf_lbl = QLabel("Engine: Offline DAI (say DAI) — no internet")
         self.conf_lbl.setObjectName("pageSubtitle")
         self.conf_lbl.setWordWrap(True)
         rl.addWidget(self.conf_lbl)
+        show_dai = QPushButton("Show DAI window")
+        show_dai.setObjectName("btnSecondary")
+        show_dai.clicked.connect(self.show_dai_requested.emit)
+        rl.addWidget(show_dai)
         rl.addStretch()
-        foot = QLabel("v0.1.10")
+        foot = QLabel("v0.1.11")
         foot.setObjectName("footerLabel")
         rl.addWidget(foot)
 

@@ -154,6 +154,18 @@ class SpeechService:
         engine = self.engine
         errors = []
 
+        if engine in ("auto", "offline", "vosk"):
+            try:
+                text = self._listen_offline(emit)
+                self._last_backend = "vosk-offline"
+                return text
+            except Exception as exc:
+                errors.append(str(exc))
+                self._last_error = str(exc)
+                if engine in ("offline", "vosk"):
+                    raise
+                emit("Offline voice unavailable — trying Chrome…")
+
         if engine in ("auto", "browser", "chrome"):
             try:
                 text = self._listen_browser(emit)
@@ -162,12 +174,10 @@ class SpeechService:
             except Exception as exc:
                 errors.append(str(exc))
                 self._last_error = str(exc)
-                # No PyAudio on most Windows PCs — do not fall back to a dead mic path
                 if engine in ("browser", "chrome") or not self.mic_available:
                     raise RuntimeError(
                         f"{exc} "
-                        "Click Speak again, allow the microphone in Chrome/Edge, then talk. "
-                        "You can also type the command and press Execute."
+                        "Say DAI in the small desktop window, or type the command."
                     ) from exc
                 emit("Chrome voice unavailable — trying laptop mic…")
 
@@ -181,8 +191,7 @@ class SpeechService:
                 if engine in ("microphone", "mic", "cloud"):
                     raise
 
-        # Last resort: try browser even if auto already tried mic-first configs
-        if engine not in ("auto", "browser", "chrome"):
+        if engine not in ("auto", "browser", "chrome", "offline", "vosk"):
             try:
                 text = self._listen_browser(emit)
                 self._last_backend = "chrome-web-speech"
@@ -194,6 +203,15 @@ class SpeechService:
         raise RuntimeError(
             f"{msg} Tip: type the command and press Enter — same automation, instant."
         )
+
+    def _listen_offline(self, emit) -> str:
+        from src.speech.offline_stt import default_model_dir, listen_utterance, resolve_model_path
+
+        model_dir = default_model_dir(self.config)
+        if not resolve_model_path(model_dir):
+            raise RuntimeError("Offline speech model not installed yet.")
+        emit("Listening offline… speak now")
+        return listen_utterance(model_dir, seconds=6.0, status_cb=emit)
 
     def _listen_browser(self, emit) -> str:
         bridge = BrowserSpeechBridge(
