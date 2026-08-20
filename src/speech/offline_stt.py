@@ -177,7 +177,7 @@ def listen_utterance(
         payload = json.loads(rec.FinalResult() or "{}")
         text = " ".join(str(payload.get("text") or "").split())
         if not text:
-            raise RuntimeError("Didn’t catch speech. Say DAI, then your command.")
+            raise RuntimeError("Didn’t catch speech. Say DAI wakeup, then your command.")
         return text
     finally:
         try:

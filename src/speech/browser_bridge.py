@@ -276,7 +276,7 @@ class BrowserSpeechBridge:
     def _open_browser(self, url: str) -> None:
         import subprocess
 
-        chrome = _find_chromium_browser()
+        chrome = find_chromium_browser()
         if chrome:
             subprocess.Popen(
                 [
@@ -293,7 +293,7 @@ class BrowserSpeechBridge:
         webbrowser.open(url)
 
 
-def _find_chromium_browser() -> str:
+def find_chromium_browser() -> str:
     """Locate Chrome or Edge so voice works on Windows without PATH entries."""
     import os
     import shutil

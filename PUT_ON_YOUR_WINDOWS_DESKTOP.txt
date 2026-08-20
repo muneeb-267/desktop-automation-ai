@@ -78,31 +78,27 @@ Install Tesseract OCR:
 https://github.com/UB-Mannheim/tesseract/wiki
 
 
-DAI LISTENER (always-on, works offline)
----------------------------------------
-After login a small DAI window sits on the desktop.
+DAI LISTENER (Google/Chrome mic)
+--------------------------------
+After login a small DAI pill sits on the desktop, and a tiny “DAI Google Mic”
+Chrome window stays open (allow the microphone if Chrome asks).
 
-1. First install/update MUST be online once (downloads a ~40 MB speech model)
-2. After that, disconnect — voice still works
-3. Say:  DAI
-   The pill shows live STT (what it heard), then it EXECUTES.
-4. Then speak commands, for example:
+1. DAI starts ASLEEP. It ignores commands until you say:  DAI wakeup
+2. Then speak one command, for example:
      Click Login
-     Open notepad
+     Open chrome
      Type hello
-     Minimize the screen     ← hides the Automate AI window (DAI keeps listening)
-     Restore                 ← brings the window back
-     Again                   ← repeats the last command
-5. Say:  DAI close now
-   to stop the session (window stays; say DAI again to resume)
+     Minimize the screen
+3. After that command, DAI goes back to sleep until the next DAI wakeup.
+4. If it only hears part of what you said, the pill asks:  Do you mean this?
+   Tap the matching suggestion.
+5. Say:  DAI sleep   or   DAI close now   to sleep immediately.
 
-If the window is hidden: Voice Command → Show DAI window
+If Google mic cannot start, DAI falls back to the slower offline mic — install
+Chrome for the listening that actually works.
 
-Windows: allow microphone for Python / Automate AI in Settings → Privacy → Microphone.
-
-Voice is never 100% perfect, but this build is faster (short audio chunks +
-run as soon as a full command is heard) and more reliable (wake grammar,
-filler stripping, unknown speech is typed as text).
+If the pill is hidden: Voice Command → Show DAI window
+Windows: allow microphone for Chrome and for Python / Automate AI.
 
 AI AGENT (FYP demo)
 -------------------

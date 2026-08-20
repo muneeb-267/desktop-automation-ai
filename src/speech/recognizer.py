@@ -177,7 +177,7 @@ class SpeechService:
                 if engine in ("browser", "chrome") or not self.mic_available:
                     raise RuntimeError(
                         f"{exc} "
-                        "Say DAI in the small desktop window, or type the command."
+                        "Say DAI wakeup in the small desktop window, or type the command."
                     ) from exc
                 emit("Chrome voice unavailable — trying laptop mic…")
 

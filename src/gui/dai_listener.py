@@ -11,6 +11,8 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from src.speech.wake import (
     WAKE_GRAMMAR,
     classify_utterance,
+    is_wake_phrase,
+    is_wakeup_followup,
     looks_complete_command,
     looks_complete_wake,
 )
@@ -50,6 +52,7 @@ class DaiMicThread(QThread):
     """Continuously listen: wake grammar + free-form STT in parallel."""
 
     heard = pyqtSignal(str)
+    heard_alts = pyqtSignal(str, list)
     partial = pyqtSignal(str)
     status = pyqtSignal(str)
     failed = pyqtSignal(str)
@@ -118,7 +121,7 @@ class DaiMicThread(QThread):
                     if key not in seen:
                         seen.add(key)
                         uniq.append(piece)
-                return uniq[0] if uniq else ""
+                return uniq
 
             def choose_heard(texts, session):
                 ranked = []
@@ -127,6 +130,8 @@ class DaiMicThread(QThread):
                         continue
                     kind, cmd = classify_utterance(t, session_active=session)
                     if kind == "ignore":
+                        if (not session) and (is_wake_phrase(t) or is_wakeup_followup(t)):
+                            ranked.append((3, 0, t))
                         continue
                     extra = len((cmd or t).split())
                     rank = 4 + extra
@@ -143,7 +148,7 @@ class DaiMicThread(QThread):
             rec_wake, rec_cmd = make_recs()
             self.status.emit("Opening microphone…")
             stream, cap_rate, channels = open_best_input_stream(sd)
-            self.status.emit("Mic on — say DAI then a command")
+            self.status.emit("Offline mic on — say DAI wakeup")
             last_partial = ""
             last_emitted = ""
             stable_text = ""
@@ -164,12 +169,12 @@ class DaiMicThread(QThread):
                 wake_final = rec_wake.AcceptWaveform(raw)
                 cmd_final = rec_cmd.AcceptWaveform(raw)
 
-                wake_text = ""
-                cmd_text = ""
+                wake_texts = []
+                cmd_texts = []
                 if wake_final:
-                    wake_text = pick_text(json.loads(rec_wake.Result() or "{}"))
+                    wake_texts = pick_text(json.loads(rec_wake.Result() or "{}"))
                 if cmd_final:
-                    cmd_text = pick_text(json.loads(rec_cmd.Result() or "{}"))
+                    cmd_texts = pick_text(json.loads(rec_cmd.Result() or "{}"))
 
                 wake_partial = ""
                 cmd_partial = ""
@@ -192,15 +197,15 @@ class DaiMicThread(QThread):
                     self.partial.emit(live)
 
                 candidates = []
-                if cmd_text:
-                    candidates.append(cmd_text)
-                if wake_text:
-                    candidates.append(wake_text)
+                candidates.extend(cmd_texts)
+                candidates.extend(wake_texts)
                 chosen = choose_heard(candidates, session)
 
                 if chosen and chosen.lower() != last_emitted.lower():
                     last_emitted = chosen
+                    alts = [c for c in candidates if c and c.lower() != chosen.lower()]
                     self.heard.emit(chosen)
+                    self.heard_alts.emit(chosen, alts)
                     last_partial = ""
                     stable_n = 0
                     rec_wake, rec_cmd = make_recs()
@@ -221,6 +226,7 @@ class DaiMicThread(QThread):
                     if stable_n >= 2 and partial.lower() != last_emitted.lower():
                         last_emitted = partial
                         self.heard.emit(partial)
+                        self.heard_alts.emit(partial, [])
                         rec_wake, rec_cmd = make_recs()
                         stable_n = 0
                         last_partial = ""

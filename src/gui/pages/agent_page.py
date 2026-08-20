@@ -28,6 +28,7 @@ class AgentPage(QWidget):
     mic_requested = pyqtSignal()
     stop_requested = pyqtSignal()
     suggestion_requested = pyqtSignal(str)
+    clarify_chosen = pyqtSignal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -92,6 +93,20 @@ class AgentPage(QWidget):
         al.addWidget(self.meta)
         root.addWidget(ask)
 
+        self.clarify_box = QFrame()
+        self.clarify_box.setObjectName("panelCard")
+        cbl = QVBoxLayout(self.clarify_box)
+        cbl.setContentsMargins(12, 10, 12, 10)
+        cbl.setSpacing(8)
+        self.clarify_label = QLabel("Do you mean this?")
+        self.clarify_label.setWordWrap(True)
+        self.clarify_row = QHBoxLayout()
+        self._clarify_buttons: List[QPushButton] = []
+        cbl.addWidget(self.clarify_label)
+        cbl.addLayout(self.clarify_row)
+        self.clarify_box.hide()
+        root.addWidget(self.clarify_box)
+
         chips = QHBoxLayout()
         for text in (
             "Open Chrome",
@@ -141,7 +156,7 @@ class AgentPage(QWidget):
         mid.addWidget(vision_card, 5)
         root.addLayout(mid, 1)
 
-        self.status = QLabel("Ready — type a goal or say DAI")
+        self.status = QLabel("Ready — type a goal, or say DAI wakeup")
         self.status.setObjectName("pageSubtitle")
         root.addWidget(self.status)
 
@@ -173,6 +188,32 @@ class AgentPage(QWidget):
 
     def set_status(self, text: str) -> None:
         self.status.setText(text)
+
+    def show_clarify(self, heard: str, suggestions: List[str]) -> None:
+        self.clarify_label.setText(
+            f'I heard “{heard}”. Do you mean this?'
+            if heard
+            else "I only caught part of that. Do you mean this?"
+        )
+        for btn in self._clarify_buttons:
+            self.clarify_row.removeWidget(btn)
+            btn.deleteLater()
+        self._clarify_buttons = []
+        for text in (suggestions or [])[:4]:
+            btn = QPushButton(text)
+            btn.setObjectName("btnGhost")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda _=False, t=text: self.clarify_chosen.emit(t))
+            self.clarify_row.addWidget(btn)
+            self._clarify_buttons.append(btn)
+        self.clarify_box.setVisible(bool(self._clarify_buttons))
+
+    def clear_clarify(self) -> None:
+        for btn in self._clarify_buttons:
+            self.clarify_row.removeWidget(btn)
+            btn.deleteLater()
+        self._clarify_buttons = []
+        self.clarify_box.hide()
 
     def show_plan(self, plan: Dict[str, Any]) -> None:
         self._plan_data = plan or {}

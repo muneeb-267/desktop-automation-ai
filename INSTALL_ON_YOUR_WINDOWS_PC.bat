@@ -129,8 +129,8 @@ echo.
 echo   Look on the Desktop for:  Automate AI   or   Automate AI.bat
 echo   Press F5 on the Desktop if it does not appear yet.
 echo.
-echo   Voice: small DAI window — say DAI, then commands. Say DAI close now to stop.
-echo   Offline after the speech model is downloaded once.
+echo   Voice: DAI sleeps until you say DAI wakeup. Google/Chrome mic is required.
+echo   Half-heard speech asks Do you mean this? on the DAI window.
 echo   Then Sign Up with a username + password on THIS PC.
 echo  ========================================================
 echo.

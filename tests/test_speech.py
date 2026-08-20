@@ -36,3 +36,11 @@ def test_listen_does_not_require_pyaudio(monkeypatch):
         msg = str(exc).lower()
         assert "no microphone library" not in msg
         assert "chrome" in msg or "edge" in msg or "execute" in msg
+
+
+def test_dai_chrome_page_is_continuous():
+    from src.speech.dai_chrome import _HTML
+
+    assert "continuous = true" in _HTML
+    assert "maxAlternatives = 5" in _HTML
+    assert "DAI wakeup" in _HTML

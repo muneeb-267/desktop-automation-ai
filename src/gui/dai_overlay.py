@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import List, Sequence
+
 from PyQt5.QtCore import Qt, QPoint, pyqtSignal
 from PyQt5.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
@@ -10,6 +12,7 @@ class DaiOverlay(QWidget):
     close_requested = pyqtSignal()
     retry_requested = pyqtSignal()
     tap_requested = pyqtSignal()
+    confirm_requested = pyqtSignal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -18,10 +21,12 @@ class DaiOverlay(QWidget):
         flags = Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
-        self.setFixedSize(300, 158)
+        self.setFixedSize(312, 168)
         self._drag: QPoint | None = None
         self._press_pos: QPoint | None = None
         self._hidden_for_action = False
+        self._clarifying = False
+        self._chip_buttons: List[QPushButton] = []
 
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 12, 14, 12)
@@ -42,11 +47,11 @@ class DaiOverlay(QWidget):
         top.addStretch(1)
         top.addWidget(hide)
 
-        self.line = QLabel("Say “DAI” to start")
+        self.line = QLabel("Sleeping — say “DAI wakeup”")
         self.line.setObjectName("daiLine")
         self.line.setWordWrap(True)
 
-        self.hint = QLabel("Say “DAI open chrome” — or click here to listen")
+        self.hint = QLabel("Google mic. After a command, DAI sleeps again.")
         self.hint.setObjectName("daiHint")
         self.hint.setWordWrap(True)
 
@@ -56,10 +61,24 @@ class DaiOverlay(QWidget):
         self.retry.clicked.connect(self.retry_requested.emit)
         self.retry.hide()
 
+        self.confirm_host = QWidget()
+        cl = QVBoxLayout(self.confirm_host)
+        cl.setContentsMargins(0, 2, 0, 0)
+        cl.setSpacing(4)
+        self.confirm_label = QLabel("Do you mean this?")
+        self.confirm_label.setObjectName("daiHint")
+        self.confirm_label.setWordWrap(True)
+        cl.addWidget(self.confirm_label)
+        self.chip_box = QVBoxLayout()
+        self.chip_box.setSpacing(4)
+        cl.addLayout(self.chip_box)
+        self.confirm_host.hide()
+
         root.addLayout(top)
         root.addWidget(self.line)
         root.addWidget(self.hint)
         root.addWidget(self.retry)
+        root.addWidget(self.confirm_host)
         self.set_mode("sleep")
 
     def place_corner(self) -> None:
@@ -75,15 +94,22 @@ class DaiOverlay(QWidget):
 
     def set_mode(self, mode: str, detail: str = "") -> None:
         mode = (mode or "sleep").lower()
+        if mode != "clarify":
+            self.clear_clarify()
         if mode == "sleep":
             self.dot.setStyleSheet("color:#94a3b8;font-size:14px;")
-            self.line.setText(detail or "Ready — say “DAI” to begin")
+            self.line.setText(detail or "Sleeping — say “DAI wakeup”")
+            self.hint.setText("Google mic. Click the pill if wakeup is not heard.")
         elif mode == "active":
             self.dot.setStyleSheet("color:#16a34a;font-size:14px;")
-            self.line.setText(detail or "Listening — speak commands")
+            self.line.setText(detail or "Awake — speak a command")
+            self.hint.setText("Then DAI sleeps until you say DAI wakeup.")
         elif mode == "busy":
             self.dot.setStyleSheet("color:#d97706;font-size:14px;")
             self.line.setText(detail or "Working…")
+        elif mode == "clarify":
+            self.dot.setStyleSheet("color:#818cf8;font-size:14px;")
+            self.line.setText(detail or "Do you mean this?")
         elif mode == "error":
             self.dot.setStyleSheet("color:#dc2626;font-size:14px;")
             self.line.setText(detail or "Mic error")
@@ -93,6 +119,42 @@ class DaiOverlay(QWidget):
             self.retry.hide()
         if mode != "error" and hasattr(self, "retry"):
             self.retry.hide()
+
+    def show_clarify(self, heard: str, suggestions: Sequence[str]) -> None:
+        self._clarifying = True
+        self.setFixedSize(312, 278)
+        self.dot.setStyleSheet("color:#818cf8;font-size:14px;")
+        self.line.setText(f"Heard: {heard}" if heard else "I only caught part of that")
+        self.hint.setText("Do you mean this?")
+        self.confirm_label.setText("Do you mean this?")
+        self._clear_chips()
+        for text in list(suggestions)[:4]:
+            btn = QPushButton(text)
+            btn.setObjectName("daiChip")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setMinimumHeight(28)
+            btn.clicked.connect(lambda _=False, t=text: self.confirm_requested.emit(t))
+            self.chip_box.addWidget(btn)
+            self._chip_buttons.append(btn)
+        self.confirm_host.show()
+        self.place_corner()
+
+    def clear_clarify(self) -> None:
+        if not self._clarifying and not self._chip_buttons:
+            if self.height() != 168:
+                self.setFixedSize(312, 168)
+            self.confirm_host.hide()
+            return
+        self._clarifying = False
+        self._clear_chips()
+        self.confirm_host.hide()
+        self.setFixedSize(312, 168)
+
+    def _clear_chips(self) -> None:
+        for btn in self._chip_buttons:
+            self.chip_box.removeWidget(btn)
+            btn.deleteLater()
+        self._chip_buttons = []
 
     def hide_for_action(self) -> None:
         self._hidden_for_action = True
@@ -122,6 +184,6 @@ class DaiOverlay(QWidget):
             moved = abs(delta.x()) > 8 or abs(delta.y()) > 8
         self._drag = None
         self._press_pos = None
-        if event.button() == Qt.LeftButton and not moved:
+        if event.button() == Qt.LeftButton and not moved and not self._clarifying:
             self.tap_requested.emit()
         super().mouseReleaseEvent(event)

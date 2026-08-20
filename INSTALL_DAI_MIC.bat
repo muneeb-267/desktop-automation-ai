@@ -16,5 +16,5 @@ if errorlevel 1 (
   exit /b 1
 )
 echo.
-echo OK. Close Automate AI and open it again. The DAI window should say: Say DAI to start
+echo OK. Close Automate AI and open it again. DAI sleeps until you say DAI wakeup.
 pause

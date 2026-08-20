@@ -56,8 +56,9 @@ class VoiceCommandPage(QWidget):
         t = QLabel("Voice Command")
         t.setObjectName("pageTitle")
         s = QLabel(
-            "Offline DAI: say “DAI”, then speak — STT shows and the command runs. "
-            "Say “minimize the screen” / “restore”. “DAI close now” stops. Hotkey: Ctrl+Space"
+            "DAI uses the Google/Chrome mic. It stays asleep until you say “DAI wakeup”, "
+            "then one command. Half-heard speech shows “Do you mean this?”. "
+            "Say “DAI sleep” to sleep. Hotkey: Ctrl+Space"
         )
         s.setObjectName("pageSubtitle")
         s.setWordWrap(True)
@@ -83,7 +84,7 @@ class VoiceCommandPage(QWidget):
         self.status.setAlignment(Qt.AlignCenter)
 
         hint = QLabel(
-            "DAI · Click Login · Minimize the screen · Type hello · DAI close now"
+            "DAI wakeup · Click Login · Do you mean this? · DAI sleep"
         )
         hint.setObjectName("pageSubtitle")
         hint.setAlignment(Qt.AlignCenter)
@@ -169,7 +170,7 @@ class VoiceCommandPage(QWidget):
             lambda v: self.sensitivity_changed.emit(v / 100.0)
         )
         rl.addWidget(self.sensitivity)
-        self.conf_lbl = QLabel("Engine: Offline DAI (say DAI) — no internet")
+        self.conf_lbl = QLabel("Engine: DAI Google mic — say DAI wakeup")
         self.conf_lbl.setObjectName("pageSubtitle")
         self.conf_lbl.setWordWrap(True)
         rl.addWidget(self.conf_lbl)

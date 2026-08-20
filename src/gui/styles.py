@@ -252,6 +252,15 @@ QScrollBar::handle:vertical {
     background: #1e293b; color: #e2e8f0; border: none; border-radius: 6px;
     padding: 0; font-weight: 700;
 }
+#daiChip {
+    background: #312e81; color: #e0e7ff; border: 1px solid #6366f1;
+    border-radius: 8px; padding: 4px 8px; font-size: 11px; font-weight: 600;
+    text-align: left;
+}
+#daiRetry {
+    background: #1e293b; color: #e2e8f0; border: 1px solid #475569;
+    border-radius: 8px; font-size: 11px;
+}
 #logFrame {
     border: 1px solid #1e293b;
     border-radius: 8px;
@@ -402,6 +411,15 @@ QScrollArea { border: none; background: transparent; }
 #daiLine { font-size: 12px; font-weight: 600; color: #e2e8f0; }
 #daiHint { font-size: 10px; color: #94a3b8; }
 #daiHide { background: #1e293b; color: #e2e8f0; border: none; border-radius: 6px; }
+#daiChip {
+    background: #312e81; color: #e0e7ff; border: 1px solid #6366f1;
+    border-radius: 8px; padding: 4px 8px; font-size: 11px; font-weight: 600;
+    text-align: left;
+}
+#daiRetry {
+    background: #1e293b; color: #e2e8f0; border: 1px solid #475569;
+    border-radius: 8px; font-size: 11px;
+}
 #logFrame { border: 1px solid #334155; border-radius: 8px; background: #020617; }
 #sectionTitle { font-size: 14px; font-weight: 700; color: #f8fafc; }
 """

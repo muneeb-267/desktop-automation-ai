@@ -14,8 +14,9 @@ _WAKE_CORE = r"(?:d\.?\s*a\.?\s*i\.?|dai|die|dye)"
 _WAKE = rf"(?:hey\s+|ok\s+|okay\s+|yo\s+)?{_WAKE_CORE}"
 _WAKE_CLOSE = (
     r"(?:hey\s+|ok\s+|okay\s+|yo\s+)?"
-    r"(?:d\.?\s*a\.?\s*i\.?|dai|die|dye|they)"
+    r"(?:d\.?\s*a\.?\s*i\.?|dai|die|dye|they|day|guy)"
 )
+_WAKEUP_TAIL = r"(?:wake\s*up|wakeup|wake)"
 
 WAKE_GRAMMAR = json.dumps(
     [
@@ -29,6 +30,18 @@ WAKE_GRAMMAR = json.dumps(
         "they",
         "day",
         "guy",
+        "dai wakeup",
+        "dai wake up",
+        "dai wake",
+        "wake up dai",
+        "wakeup dai",
+        "die wakeup",
+        "die wake up",
+        "day wakeup",
+        "they wakeup",
+        "hey dai wakeup",
+        "hey dai wake up",
+        "dai sleep",
         "dai close now",
         "die close now",
         "they close now",
@@ -64,15 +77,74 @@ def is_close_phrase(text: str, *, session_active: bool = False) -> bool:
     t = normalize(text)
     if not t:
         return False
-    if re.search(rf"^{_WAKE_CLOSE}\s+(close(\s+now)?|stop(\s+now)?|quit)$", t):
+    if re.search(rf"^{_WAKE_CLOSE}\s+(close(\s+now)?|stop(\s+now)?|quit|sleep)$", t):
         return True
     if re.search(r"\bclose\s+now\b", t) and re.search(rf"^{_WAKE_CLOSE}\b", t):
         return True
     if session_active and re.search(
-        r"^(close\s+now|stop\s+listening|stop\s+now|go\s+to\s+sleep)$", t
+        r"^(close\s+now|stop\s+listening|stop\s+now|go\s+to\s+sleep|sleep(\s+now)?|dai sleep)$",
+        t,
     ):
         return True
     return False
+
+
+def is_sleep_phrase(text: str, *, session_active: bool = False) -> bool:
+    """Put DAI back to sleep until the next “DAI wakeup”."""
+    t = normalize(text)
+    if not t:
+        return False
+    if is_close_phrase(t, session_active=session_active):
+        return True
+    if re.search(rf"^{_WAKE_CLOSE}\s+(sleep|standby|rest)$", t):
+        return True
+    if session_active and re.search(
+        r"^(sleep|go\s+to\s+sleep|go\s+sleep|sleep\s+now|standby)$", t
+    ):
+        return True
+    return False
+
+
+def is_wakeup_phrase(text: str) -> bool:
+    """True only for “DAI wakeup” (not bare DAI). Google often hears die/day/they."""
+    t = normalize(text)
+    if not t:
+        return False
+    if re.search(rf"{_WAKE_CLOSE}\s+{_WAKEUP_TAIL}\b", t):
+        return True
+    if re.search(rf"\b{_WAKEUP_TAIL}\s+{_WAKE_CORE}\b", t):
+        return True
+    if re.search(rf"\b{_WAKEUP_TAIL}\s+(?:they|day|guy)\b", t):
+        return True
+    compact = t.replace(" ", "")
+    if "wakeup" in compact or "wake up" in t:
+        if re.search(rf"\b(?:dai|die|dye|they|day|guy|hey)\b", t):
+            return True
+    return False
+
+
+def is_wakeup_followup(text: str) -> bool:
+    """Second half when Google splits “DAI” and “wakeup” into two results."""
+    t = normalize(text)
+    return bool(re.match(rf"^{_WAKEUP_TAIL}$", t))
+
+
+def looks_like_wakeup_progress(text: str) -> bool:
+    """Idle partials that look like the person is saying DAI wakeup."""
+    t = normalize(text)
+    if not t:
+        return False
+    if is_wakeup_phrase(t) or is_wake_phrase(t) or is_wakeup_followup(t):
+        return True
+    return bool(re.search(r"\b(dai|die|dye|wake)\b", t))
+
+
+def strip_wakeup(text: str) -> str:
+    t = normalize(text)
+    t = re.sub(rf"^{_WAKE}\s+{_WAKEUP_TAIL}\s*", "", t)
+    t = re.sub(rf"^{_WAKEUP_TAIL}\s+{_WAKE_CORE}\s*", "", t)
+    t = re.sub(rf"^{_WAKE_CLOSE}\s+{_WAKEUP_TAIL}\s*", "", t)
+    return clean_spoken_command(t.strip(" .,!?"))
 
 
 def is_wake_phrase(text: str) -> bool:
@@ -101,18 +173,17 @@ def is_wake_phrase(text: str) -> bool:
 
 
 def looks_complete_wake(text: str) -> bool:
-    """Idle partial that is already a wake word (optionally plus a full command)."""
+    """Idle partial that is already “DAI wakeup” (optionally plus a full command)."""
     t = normalize(text)
     if not t:
         return False
-    if is_close_phrase(t, session_active=False):
+    if is_sleep_phrase(t, session_active=False):
         return True
-    if is_wake_phrase(t):
-        leftover = strip_wake(t)
-        # Alias-only (day/guy) does not strip, leftover == t
-        if not leftover or leftover == t:
+    if is_wakeup_phrase(t):
+        leftover = strip_wakeup(t)
+        if not leftover:
             return True
-        return looks_complete_command(leftover)
+        return leftover == t or looks_complete_command(leftover)
     return False
 
 
@@ -162,19 +233,24 @@ def classify_utterance(text: str, *, session_active: bool) -> Tuple[Kind, str]:
     raw = normalize(text)
     if not raw:
         return "ignore", ""
-    if is_close_phrase(raw, session_active=session_active):
+    if is_sleep_phrase(raw, session_active=session_active):
         return "close", ""
-    cleaned = clean_spoken_command(strip_wake(raw) if is_wake_phrase(raw) else raw)
-    if is_minimize_phrase(raw) or is_minimize_phrase(cleaned):
-        if session_active or is_wake_phrase(raw):
-            return "minimize", cleaned
-    if is_restore_phrase(raw) or is_restore_phrase(cleaned):
-        if session_active or is_wake_phrase(raw):
-            return "restore", cleaned
+
+    woke = is_wakeup_phrase(raw)
+    leftover = strip_wakeup(raw) if woke else ""
+    cleaned = leftover or clean_spoken_command(
+        strip_wake(raw) if is_wake_phrase(raw) else raw
+    )
+
+    listening = session_active or woke
+    if listening and (is_minimize_phrase(raw) or is_minimize_phrase(cleaned)):
+        return "minimize", cleaned
+    if listening and (is_restore_phrase(raw) or is_restore_phrase(cleaned)):
+        return "restore", cleaned
     if session_active and re.match(r"^(again|repeat|do it again|execute that|do that)$", cleaned):
         return "repeat", ""
-    if is_wake_phrase(raw):
-        return "wake", cleaned
+    if woke:
+        return "wake", leftover
     if session_active:
         return "command", cleaned
     return "ignore", ""
