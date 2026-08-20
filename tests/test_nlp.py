@@ -61,6 +61,17 @@ def test_click_button_and_fill_form():
     assert "alice" in filled.entities.get("text", "").lower()
 
 
+def test_multi_step_then_and_first_result():
+    engine = NLPEngine()
+    parsed = engine.parse(
+        "Open Chrome, search for FYP ideas, then open the first result"
+    )
+    intents = [s["intent"] for s in parsed.steps]
+    assert "open_app" in intents
+    assert "search_web" in intents
+    assert "click_text" in intents
+
+
 def test_unknown_command_graceful():
     engine = NLPEngine()
     parsed = engine.parse("asdf qwer zxcv")
@@ -104,4 +115,15 @@ def test_minimize_restore_and_spoken_fillers():
     assert spoken.intent == "type_text"
     assert "hello" in spoken.entities.get("text", "").lower()
     assert engine.parse("restore the window").intent == "restore_window"
+
+
+def test_ambiguous_and_malformed():
+    engine = NLPEngine()
+    empty = engine.parse("   ")
+    assert empty.intent == "unknown"
+    weird = engine.parse("!!! ???")
+    assert weird.intent == "unknown"
+    first = engine.parse("open the first result")
+    assert first.intent == "click_text"
+    assert first.entities.get("element")
 

@@ -33,15 +33,21 @@ from src.db.repositories import (
     TaskRepository,
     UserConfRepository,
 )
+from src.diagnostics import probe_all
 from src.gui.dai_listener import DaiMicThread, DaiSetupThread
 from src.gui.dai_overlay import DaiOverlay
+from src.gui.components.toast import ToastHost
+from src.gui.pages.agent_page import AgentPage
 from src.gui.pages.dashboard_page import DashboardPage
+from src.gui.pages.diagnostics_page import DiagnosticsPage
 from src.gui.pages.history_page import HistoryPage
 from src.gui.pages.settings_page import SettingsPage
 from src.gui.pages.voice_page import VoiceCommandPage
 from src.gui.pages.workflows_page import WorkflowsPage
+from src.gui.setup_wizard import SetupWizard
 from src.gui.styles import get_app_style
 from src.gui.window_fit import apply_standard_window_chrome, fit_to_screen
+from src.gui.workflow_editor import WorkflowEditorDialog
 from src.gui.workers import CommandWorker, SpeechWorker, WorkflowWorker
 from src.speech.wake import classify_utterance, clean_spoken_command
 
@@ -97,9 +103,11 @@ class MainWindow(QMainWindow):
         self._load_settings()
         # Fast voice hotkey
         QShortcut(QKeySequence("Ctrl+Space"), self, activated=self._listen)
+        QShortcut(QKeySequence("Ctrl+Shift+Esc"), self, activated=self._emergency_stop)
         self._show_page("dashboard")
         self.schedule_refresh(immediate=True)
         QTimer.singleShot(600, self._start_dai_listener)
+        QTimer.singleShot(800, self._maybe_setup_wizard)
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -118,26 +126,34 @@ class MainWindow(QMainWindow):
 
         brand_row = QHBoxLayout()
         brand_row.setSpacing(10)
-        mark = QLabel("⌁")
+        mark = QLabel("A")
         mark.setFixedSize(32, 32)
         mark.setAlignment(Qt.AlignCenter)
         mark.setStyleSheet(
-            "background:#0f172a;color:#ffffff;border-radius:8px;"
+            "background:#4f46e5;color:#ffffff;border-radius:8px;"
             "font-weight:800;font-size:16px;"
         )
+        brand_col = QVBoxLayout()
         brand = QLabel(self.config.get("app", {}).get("name", "Automate AI"))
         brand.setObjectName("sideBrand")
         brand.setWordWrap(True)
+        tag = QLabel("Your desktop. Automated.")
+        tag.setObjectName("pageSubtitle")
+        tag.setWordWrap(True)
+        brand_col.addWidget(brand)
+        brand_col.addWidget(tag)
         brand_row.addWidget(mark, 0, Qt.AlignTop)
-        brand_row.addWidget(brand, 1)
+        brand_row.addLayout(brand_col, 1)
         sl.addLayout(brand_row)
         sl.addSpacing(16)
 
         for key, label in (
             ("dashboard", "Dashboard"),
+            ("agent", "AI Agent"),
             ("voice", "Voice Command"),
             ("history", "Execution History"),
             ("workflows", "Workflows"),
+            ("diagnostics", "Diagnostics"),
             ("settings", "Settings"),
         ):
             btn = QPushButton(label)
@@ -179,19 +195,29 @@ class MainWindow(QMainWindow):
             "background:#eef2f7;color:#0f172a;border-radius:16px;"
             "padding:8px 14px;font-weight:600;"
         )
+        stop = QPushButton("STOP")
+        stop.setObjectName("btnDanger")
+        stop.setMinimumHeight(36)
+        stop.setToolTip("Emergency stop (Ctrl+Shift+Esc)")
+        stop.clicked.connect(self._emergency_stop)
         tl.addWidget(self.search, 1)
+        tl.addWidget(stop)
         tl.addWidget(user_lbl)
 
         self.stack = QStackedWidget()
         self.page_dashboard = DashboardPage()
+        self.page_agent = AgentPage()
         self.page_voice = VoiceCommandPage()
         self.page_history = HistoryPage()
         self.page_workflows = WorkflowsPage()
+        self.page_diagnostics = DiagnosticsPage()
         self.page_settings = SettingsPage()
         self.stack.addWidget(self.page_dashboard)
+        self.stack.addWidget(self.page_agent)
         self.stack.addWidget(self.page_voice)
         self.stack.addWidget(self.page_history)
         self.stack.addWidget(self.page_workflows)
+        self.stack.addWidget(self.page_diagnostics)
         self.stack.addWidget(self.page_settings)
 
         main.addWidget(top)
@@ -199,14 +225,20 @@ class MainWindow(QMainWindow):
 
         root.addWidget(side)
         root.addLayout(main, 1)
+        self.toast = ToastHost(self)
 
     def _wire(self) -> None:
         self.page_dashboard.open_voice.connect(lambda: self._show_page("voice"))
+        self.page_dashboard.open_agent.connect(lambda: self._show_page("agent"))
         self.page_dashboard.open_history.connect(lambda: self._show_page("history"))
         self.page_dashboard.open_workflows.connect(lambda: self._show_page("workflows"))
-        self.page_dashboard.run_diagnostics.connect(
-            lambda: self._run_command("Wait 1 seconds")
-        )
+        self.page_dashboard.run_diagnostics.connect(lambda: self._show_page("diagnostics"))
+
+        self.page_agent.execute_requested.connect(self._run_command)
+        self.page_agent.plan_requested.connect(self._preview_plan)
+        self.page_agent.mic_requested.connect(self._listen)
+        self.page_agent.stop_requested.connect(self._emergency_stop)
+        self.page_agent.suggestion_requested.connect(self.page_agent.set_command_text)
 
         self.page_voice.execute_requested.connect(self._run_command)
         self.page_voice.mic_requested.connect(self._listen)
@@ -225,13 +257,22 @@ class MainWindow(QMainWindow):
         self.page_settings.save_requested.connect(self._save_settings)
         self.page_voice.show_dai_requested.connect(self._start_dai_listener)
 
+        self.page_diagnostics.refresh_requested.connect(self._refresh_diagnostics)
+        self.page_diagnostics.test_capture_requested.connect(self._test_capture)
+        self.page_diagnostics.test_ocr_requested.connect(self._test_ocr)
+        self.page_diagnostics.test_mouse_requested.connect(self._test_mouse)
+        self.page_diagnostics.test_keyboard_requested.connect(self._test_keyboard)
+        self.page_diagnostics.test_mic_requested.connect(self._test_mic)
+
     def _show_page(self, key: str) -> None:
         mapping = {
             "dashboard": 0,
-            "voice": 1,
-            "history": 2,
-            "workflows": 3,
-            "settings": 4,
+            "agent": 1,
+            "voice": 2,
+            "history": 3,
+            "workflows": 4,
+            "diagnostics": 5,
+            "settings": 6,
         }
         self._current_page = key
         self.stack.setCurrentIndex(mapping.get(key, 0))
@@ -260,9 +301,10 @@ class MainWindow(QMainWindow):
         self.page_voice.sensitivity.setValue(int(sens * 100))
         self.page_voice.sensitivity.blockSignals(False)
         self.speech.set_sensitivity(sens)
+        cloud_on = str(conf.get("cloud_ai", "0")) in ("1", "true", "True")
         self.speech.set_api_keys(
-            openai_key=str(conf.get("openai_api_key") or speech_cfg.get("openai_api_key") or ""),
-            gemini_key=str(conf.get("gemini_api_key") or speech_cfg.get("gemini_api_key") or ""),
+            openai_key=str(conf.get("openai_api_key") or speech_cfg.get("openai_api_key") or "") if cloud_on else "",
+            gemini_key=str(conf.get("gemini_api_key") or speech_cfg.get("gemini_api_key") or "") if cloud_on else "",
         )
         cloud = self.speech.cloud_status()
         bits = ["Offline DAI (say DAI)"]
@@ -290,10 +332,13 @@ class MainWindow(QMainWindow):
         self.conf_repo.update_many(self.user["user_id"], values)
         self.pipeline.apply_user_settings(self.user["user_id"])
         self.speech.set_sensitivity(float(values.get("mic_sensitivity", 0.9)))
-        self.speech.set_api_keys(
-            openai_key=str(values.get("openai_api_key") or ""),
-            gemini_key=str(values.get("gemini_api_key") or ""),
-        )
+        if str(values.get("cloud_ai", "0")) in ("1", "true", "True"):
+            self.speech.set_api_keys(
+                openai_key=str(values.get("openai_api_key") or ""),
+                gemini_key=str(values.get("gemini_api_key") or ""),
+            )
+        else:
+            self.speech.set_api_keys(openai_key="", gemini_key="")
         if values.get("theme"):
             self._apply_theme(str(values["theme"]))
         cloud = self.speech.cloud_status()
@@ -309,6 +354,7 @@ class MainWindow(QMainWindow):
             bits.append("Gemini")
         self.page_voice.set_engine_label("Engine: " + " · ".join(bits))
         QMessageBox.information(self, "Settings", "Settings applied.")
+        self.toast.show("Settings saved", "success")
         self._show_page("dashboard")
 
     def _set_sensitivity(self, value: float) -> None:
@@ -332,7 +378,7 @@ class MainWindow(QMainWindow):
         dry = str(conf.get("dry_run", "0")) in ("1", "true", "True")
         page = self._current_page
 
-        if page in ("dashboard", "history", "workflows", "voice"):
+        if page in ("dashboard", "history", "workflows", "voice", "agent"):
             logs = self.log_repo.recent(user_id=uid, limit=30)
         else:
             logs = []
@@ -341,6 +387,8 @@ class MainWindow(QMainWindow):
             stats = self.log_repo.stats(uid)
             self.page_dashboard.update_stats(stats, dry_run=dry)
             self.page_dashboard.update_activity(logs)
+        elif page == "agent":
+            pass
         elif page == "history":
             captures_by_log = {}
             for log in logs:
@@ -368,13 +416,16 @@ class MainWindow(QMainWindow):
                 for l in logs[:5]
             ]
             self.page_workflows.set_live_logs(live)
+        elif page == "diagnostics":
+            self._refresh_diagnostics()
         QApplication.processEvents()
 
     def _search(self) -> None:
         q = self.search.text().strip()
         if q:
-            self._show_page("voice")
-            self.page_voice.set_command_text(q)
+            self._show_page("agent")
+            self.page_agent.set_command_text(q)
+            self._preview_plan(q)
 
     def _busy(self) -> bool:
         for worker in (self._command_worker, self._workflow_worker, self._speech_worker):
@@ -429,12 +480,19 @@ class MainWindow(QMainWindow):
             return
         self._live_desktop = live_desktop
         self._dai_last_cmd = text
-        if not live_desktop and self._current_page != "voice":
-            self._show_page("voice")
+        if not live_desktop and self._current_page not in ("voice", "agent"):
+            self._show_page("agent")
         self.page_voice.set_command_text(text)
+        self.page_agent.set_command_text(text)
+        try:
+            plan = self.pipeline.preview_plan(text, source=source)
+            self.page_agent.show_plan(plan.to_dict())
+        except Exception:
+            pass
         mode = "LIVE" if not self.pipeline.automation.dry_run else "dry-run"
         self.page_voice.set_busy(True)
         self.page_voice.set_status_message(f"STT: {text}  ·  Running ({mode})…")
+        self.page_agent.set_status(f"STT: {text}  ·  Running ({mode})…")
         if self._dai_overlay and live_desktop:
             self._dai_overlay.set_mode("busy", f"STT → {text}")
         # Hide chrome so live clicks land on the real desktop
@@ -451,6 +509,7 @@ class MainWindow(QMainWindow):
             self.pipeline, text, self.user["user_id"], source=source, parent=self
         )
         self._command_worker.status.connect(self.page_voice.set_status_message)
+        self._command_worker.status.connect(self.page_agent.mark_status)
         self._command_worker.failed.connect(lambda m: self.page_voice.set_status_message(f"✗ {m}"))
         self._command_worker.finished_ok.connect(self._on_command_done)
         self._command_worker.start()
@@ -468,15 +527,28 @@ class MainWindow(QMainWindow):
         if result.get("ok"):
             mode = "dry-run" if result.get("dry_run") else "live"
             self.page_voice.set_status_message(f"✓ Completed successfully ({mode})")
+            self.toast.show("✓ Workflow / command completed successfully", "success")
             if self._dai_overlay and self._dai_active:
                 self._dai_overlay.set_mode("active", "Listening — next command")
         else:
-            self.page_voice.set_status_message(f"✗ {result.get('error') or 'Failed'}")
+            err = result.get("error") or "Failed"
+            self.page_voice.set_status_message(f"✗ {err}")
+            kind = "safety" if "Safety limit" in err or "emergency" in err.lower() else "error"
+            self.toast.show(err.split("\n")[0][:160], kind)
+            if result.get("suggestions"):
+                self.page_agent.show_plan(result.get("plan") or {})
             if self._dai_overlay:
                 self._dai_overlay.set_mode(
                     "active" if self._dai_active else "sleep",
-                    result.get("error") or "Failed",
+                    err.split("\n")[0][:80],
                 )
+        if result.get("plan"):
+            self.page_agent.show_plan(result["plan"])
+        self.page_agent.show_vision(
+            self.pipeline.last_frame,
+            boxes=result.get("boxes") or self.pipeline.last_boxes,
+            path=getattr(self.pipeline, "last_capture_path", "") or "",
+        )
         if self.pipeline.automation.recording:
             n = len(self.pipeline.automation.session_history)
             self.page_workflows.set_recording(True, step_count=n)
@@ -486,12 +558,13 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(80, lambda: self._run_command(nxt, source="voice", live_desktop=True))
 
     def _stop_workers(self) -> None:
-        self.pipeline.request_stop()
+        self.pipeline.request_stop("Stopped by user")
         for worker in (self._command_worker, self._workflow_worker):
             if worker is not None and worker.isRunning() and hasattr(worker, "stop"):
                 worker.stop()
         self.page_voice.set_status_message("● Stop requested…")
         self.page_voice.set_busy(False)
+        self.page_agent.set_status("● Stop requested…")
 
     def _listen(self) -> None:
         if self._busy():
@@ -515,8 +588,10 @@ class MainWindow(QMainWindow):
     def _on_transcribed(self, text: str) -> None:
         self.page_voice.set_listening(False)
         self.page_voice.set_command_text(text)
+        self.page_agent.set_command_text(text)
         backend = getattr(self.speech, "last_backend", "") or "voice"
         self.page_voice.set_status_message(f"Heard ({backend}): {text}")
+        self.page_agent.set_status(f"Heard ({backend}): {text}")
         self._run_command(text, source="voice")
 
     def _run_workflow(self, workflow_id: int) -> None:
@@ -622,70 +697,83 @@ class MainWindow(QMainWindow):
         if not wf:
             QMessageBox.warning(self, "Edit", "Workflow not found.")
             return
-        name, ok = QInputDialog.getText(
-            self, "Rename Workflow", "Workflow name:", text=wf.get("name", "")
-        )
-        if not ok or not name.strip():
+        dlg = WorkflowEditorDialog(wf, self)
+        if dlg.exec_() != QDialog.Accepted:
             return
-        self.workflows.rename_workflow(workflow_id, name.strip())
-
-        # Optional step editor — one intent per line: intent|element_or_app|value
-        current_tasks = wf.get("tasks") or []
-        lines = []
-        for t in current_tasks:
-            lines.append(
-                f"{t.get('intent','wait')}|{t.get('target_app','')}|{t.get('target_element','')}|{t.get('input_value','')}"
-            )
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Edit workflow steps")
-        layout = QVBoxLayout(dlg)
-        layout.addWidget(
-            QLabel("One step per line: intent|target_app|target_element|input_value")
-        )
-        editor = QTextEdit()
-        editor.setPlainText("\n".join(lines) or "open_app|chrome||\nwait|||1")
-        layout.addWidget(editor)
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        layout.addWidget(buttons)
-        if dlg.exec_() == QDialog.Accepted:
-            tasks = []
-            for i, raw in enumerate(editor.toPlainText().splitlines(), start=1):
-                raw = raw.strip()
-                if not raw or raw.startswith("#"):
-                    continue
-                parts = [p.strip() for p in raw.split("|")]
-                while len(parts) < 4:
-                    parts.append("")
-                intent, app, element, value = parts[:4]
-                params: Dict[str, Any] = {}
-                if intent == "wait":
-                    try:
-                        params["seconds"] = float(value or 1)
-                    except ValueError:
-                        params["seconds"] = 1.0
-                elif intent == "search_web":
-                    params["query"] = value
-                elif intent == "scroll":
-                    params["direction"] = value or "down"
-                    params["amount"] = 3
-                elif intent == "fill_form":
-                    params["field"] = element
-                    params["text"] = value
-                tasks.append(
-                    {
-                        "intent": intent or "wait",
-                        "target_app": app,
-                        "target_element": element,
-                        "input_value": value,
-                        "params": params,
-                        "step_order": i,
-                    }
-                )
-            if tasks:
-                self.workflows.save_tasks(workflow_id, tasks)
+        payload = dlg.result_payload()
+        if payload.get("name"):
+            self.workflows.rename_workflow(workflow_id, payload["name"])
+        if payload.get("tasks"):
+            self.workflows.save_tasks(workflow_id, payload["tasks"])
+        self.toast.show("Workflow updated", "success")
         self.refresh_all()
+
+    def _preview_plan(self, text: str) -> None:
+        if not text.strip():
+            return
+        try:
+            plan = self.pipeline.preview_plan(text)
+            self.page_agent.show_plan(plan.to_dict())
+            self.page_agent.set_status("Plan ready — click Execute when it looks right.")
+            if plan.needs_clarification:
+                self.toast.show("Low confidence — check suggestions", "warning")
+        except Exception as exc:
+            self.toast.show(str(exc), "error")
+
+    def _emergency_stop(self) -> None:
+        self.pipeline.request_stop("User requested emergency stop.")
+        self._stop_workers()
+        self.showNormal()
+        self.toast.show("🛑 AUTOMATION STOPPED", "safety")
+        self.page_agent.set_status("🛑 Emergency stop — remaining actions cancelled.")
+        if self._dai_overlay:
+            self._dai_overlay.set_mode("sleep" if not self._dai_active else "active", "Stopped")
+
+    def _maybe_setup_wizard(self) -> None:
+        conf = self.conf_repo.get_map(self.user["user_id"])
+        if str(conf.get("setup_complete", "0")) in ("1", "true", "True"):
+            return
+        dlg = SetupWizard(self.config, self)
+        dlg.exec_()
+        self.conf_repo.set(self.user["user_id"], "setup_complete", "1")
+
+    def _refresh_diagnostics(self) -> None:
+        self.page_diagnostics.set_results(probe_all(self.config))
+
+    def _test_capture(self) -> None:
+        result = self.pipeline.capture_preview()
+        ok = result.get("ok")
+        self.page_diagnostics.set_test_output(
+            "Screen capture OK" if ok else f"Capture issue: {self.pipeline.vision.last_capture_error}"
+        )
+        self.page_agent.show_vision(result.get("frame"), path=result.get("path") or "")
+        self.toast.show("Screen capture tested", "success" if ok else "error")
+
+    def _test_ocr(self) -> None:
+        frame = self.pipeline.vision.capture_screen()
+        preview = self.pipeline.vision.ocr_preview(frame)
+        self.page_agent.show_vision(frame, boxes=preview.boxes)
+        self.page_diagnostics.set_test_output(f"OCR boxes: {len(preview.boxes or [])}")
+        self.toast.show("OCR test finished", "info")
+
+    def _test_mouse(self) -> None:
+        if self.pipeline.automation.dry_run:
+            self.page_diagnostics.set_test_output("Dry-run on — mouse not moved.")
+            return
+        ready = self.pipeline.automation.mouse_ready
+        self.page_diagnostics.set_test_output(
+            "PyAutoGUI ready" if ready else "PyAutoGUI unavailable"
+        )
+
+    def _test_keyboard(self) -> None:
+        self.page_diagnostics.set_test_output(
+            "Keyboard path uses PyAutoGUI type_text (enable live mode to send keys)."
+        )
+
+    def _test_mic(self) -> None:
+        self.speech.warm_up()
+        self.page_diagnostics.set_test_output("Microphone warm-up requested. Say DAI or use Speak.")
+        self.toast.show("Mic warm-up started", "info")
 
     def shutdown(self) -> None:
         self._stop_dai_listener()

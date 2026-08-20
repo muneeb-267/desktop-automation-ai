@@ -14,7 +14,32 @@ _db_singleton: Optional["Database"] = None
 
 
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    """Store a salted password hash. Prefers bcrypt; falls back to prefixed SHA-256."""
+    raw = (password or "").encode("utf-8")
+    try:
+        import bcrypt
+
+        digest = bcrypt.hashpw(raw, bcrypt.gensalt(rounds=12))
+        return "bcrypt$" + digest.decode("ascii")
+    except Exception:
+        return "sha256$" + hashlib.sha256(raw).hexdigest()
+
+
+def verify_password(password: str, stored: str) -> bool:
+    stored = stored or ""
+    raw = (password or "").encode("utf-8")
+    if stored.startswith("bcrypt$"):
+        try:
+            import bcrypt
+
+            return bcrypt.checkpw(raw, stored[7:].encode("ascii"))
+        except Exception:
+            return False
+    digest = hashlib.sha256(raw).hexdigest()
+    if stored.startswith("sha256$"):
+        return stored[7:] == digest
+    # Legacy rows hashed with bare SHA-256
+    return stored == digest
 
 
 _SAMPLE_WORKFLOWS = [
@@ -113,6 +138,17 @@ class Database:
             "voice_sensitivity": str(cfg.get("speech", {}).get("mic_sensitivity", 0.9)),
             "mic_sensitivity": str(cfg.get("speech", {}).get("mic_sensitivity", 0.9)),
             "recognition_confidence": "0.85",
+            "ai_mode": "local",
+            "confirm_plan": "1",
+            "min_confidence": str(cfg.get("nlp", {}).get("min_confidence", 0.45)),
+            "max_actions": str(cfg.get("automation", {}).get("max_actions", 30)),
+            "max_seconds": str(cfg.get("automation", {}).get("max_seconds", 60)),
+            "max_retries": str(cfg.get("automation", {}).get("max_retries", 3)),
+            "verify_actions": "1",
+            "cloud_ai": "0",
+            "store_screenshots": "1",
+            "store_history": "1",
+            "setup_complete": "0",
         }
         for key, value in defaults.items():
             self.execute(

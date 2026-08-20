@@ -221,13 +221,22 @@ class WorkflowsPage(QWidget):
         title.setObjectName("sectionTitle")
         title.setWordWrap(True)
 
+        tasks = wf.get("tasks") or []
         meta = QLabel(
             f"Created {str(wf.get('created_at', ''))[:10] or '—'}  ·  "
-            f"{len(wf.get('tasks') or [])} steps  ·  "
+            f"{len(tasks)} steps  ·  "
             f"{wf.get('trigger_type', 'manual')}"
         )
         meta.setObjectName("pageSubtitle")
         meta.setWordWrap(True)
+        chain_bits = []
+        for i, t in enumerate(tasks[:4], start=1):
+            chain_bits.append(f"{i}. {t.get('intent', 'step')}")
+        if len(tasks) > 4:
+            chain_bits.append("…")
+        chain = QLabel(" → ".join(chain_bits) if chain_bits else "No steps yet — Edit to add a visual chain.")
+        chain.setObjectName("pageSubtitle")
+        chain.setWordWrap(True)
 
         row = QHBoxLayout()
         row.setSpacing(8)
@@ -256,6 +265,7 @@ class WorkflowsPage(QWidget):
 
         lay.addWidget(title)
         lay.addWidget(meta)
+        lay.addWidget(chain)
         lay.addStretch(1)
         lay.addLayout(row)
         return card

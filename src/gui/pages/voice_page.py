@@ -178,7 +178,7 @@ class VoiceCommandPage(QWidget):
         show_dai.clicked.connect(self.show_dai_requested.emit)
         rl.addWidget(show_dai)
         rl.addStretch()
-        foot = QLabel("v0.1.12")
+        foot = QLabel("v0.2.0")
         foot.setObjectName("footerLabel")
         rl.addWidget(foot)
 

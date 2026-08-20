@@ -6,10 +6,12 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from src.automation.engine import AutomationEngine
+from src.automation.safety import SafetyLimitError, SafetyPolicy
 from src.db.database import Database
 from src.db.repositories import NLPCommandRepository, UserConfRepository
 from src.logging_audit.service import AuditService
 from src.nlp.engine import NLPEngine, ParsedCommand
+from src.nlp.planner import ActionPlan, CommandPlanner, PlanStep
 from src.vision.engine import VisionEngine
 from src.workflows.service import WorkflowService
 
@@ -39,12 +41,21 @@ class AutomationPipeline:
         self.audit = audit or AuditService(db)
         self.nlp_repo = NLPCommandRepository(db)
         self.conf_repo = UserConfRepository(db)
+        self.planner = CommandPlanner(
+            mode=str((config.get("nlp") or {}).get("mode", "local")),
+            min_confidence=float(nlp_cfg.get("min_confidence", 0.45)),
+        )
+        self.safety = SafetyPolicy.from_config(config)
         self._stop_requested = False
+        self._stop_reason = ""
         self.last_frame = None
         self.last_boxes: List[Dict[str, Any]] = []
+        self.last_plan: Optional[Dict[str, Any]] = None
+        self.last_capture_path = ""
 
-    def request_stop(self) -> None:
+    def request_stop(self, reason: str = "User requested emergency stop.") -> None:
         self._stop_requested = True
+        self._stop_reason = reason
 
     def apply_user_settings(self, user_id: int) -> None:
         conf = self.conf_repo.get_map(user_id)
@@ -56,6 +67,28 @@ class AutomationPipeline:
         if self.automation._pyautogui is not None:
             self.automation._pyautogui.PAUSE = self.automation.pause_seconds
             self.automation._pyautogui.FAILSAFE = self.automation.failsafe
+        mode = str(conf.get("ai_mode") or self.config.get("nlp", {}).get("mode") or "local")
+        self.planner.mode = "enhanced" if mode in ("enhanced", "cloud", "ai") else "local"
+        self.planner.min_confidence = float(
+            conf.get("min_confidence", self.config.get("nlp", {}).get("min_confidence", 0.45))
+        )
+        self.safety = SafetyPolicy.from_config(self.config, conf)
+
+    def preview_plan(self, text: str, *, source: str = "text") -> ActionPlan:
+        parsed = self.nlp.parse(text)
+        if parsed.intent == "unknown" and source == "voice" and (parsed.raw_text or text).strip():
+            spoken = (parsed.raw_text or text).strip()
+            parsed.intent = "type_text"
+            parsed.entities = {**(parsed.entities or {}), "text": spoken}
+            parsed.confidence = max(parsed.confidence, 0.4)
+            parsed.steps = [
+                {
+                    "intent": "type_text",
+                    "entities": dict(parsed.entities),
+                    "confidence": parsed.confidence,
+                }
+            ]
+        return self.planner.plan(parsed, parsed.raw_text or text)
 
     def _ensure_live_automation(self, intents: Optional[List[str]] = None) -> None:
         """Require PyAutoGUI only for mouse/keyboard steps (not browser URL launches)."""
@@ -68,6 +101,7 @@ class AutomationPipeline:
             "type_text",
             "press_key",
             "scroll",
+            "wait",
         }
         required = any(i in needs_mouse for i in (intents or []))
         if not required:
@@ -89,11 +123,12 @@ class AutomationPipeline:
         status_cb: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         self._stop_requested = False
+        self._stop_reason = ""
         self._status_cb = status_cb or (lambda _m: None)
         started = time.perf_counter()
         emit = self._status_cb
 
-        emit("Parsing command…")
+        emit("AI planner: understanding your goal…")
         parsed = self.nlp.parse(text)
         # Voice: always turn STT into an action (type if we don't recognize a verb)
         if parsed.intent == "unknown" and source == "voice" and (parsed.raw_text or text).strip():
@@ -109,47 +144,35 @@ class AutomationPipeline:
                 }
             ]
 
+        plan = self.planner.plan(parsed, parsed.raw_text or text)
+        self.last_plan = plan.to_dict()
+        emit(
+            f"Plan ready · {plan.summary} · confidence {int(plan.confidence * 100)}% · "
+            f"~{plan.estimated_s:.0f}s"
+        )
+
         command_id = self.nlp_repo.create(
             raw_text=text,
             parsed_intent=parsed.intent,
-            entities=parsed.entities,
+            entities={**(parsed.entities or {}), "plan": [s.title for s in plan.steps]},
             confidence=parsed.confidence,
             source=source,
             user_id=user_id,
         )
 
-        # Graceful invalid / ambiguous input — never crash the UI
-        if parsed.intent == "unknown" or (
-            not parsed.steps
-            and parsed.intent not in (
-                "open_app",
-                "open_file",
-                "click_text",
-                "click_button",
-                "fill_form",
-                "type_text",
-                "search_web",
-                "press_key",
-                "scroll",
-                "wait",
-                "run_workflow",
-                "copy_file",
-                "move_file",
-                "minimize_window",
-                "restore_window",
-            )
-        ):
+        if plan.needs_clarification and parsed.intent == "unknown":
             duration = int((time.perf_counter() - started) * 1000)
+            hints = " · ".join(plan.suggestions[:4]) or "Open Chrome · Click Login"
             msg = (
-                "Could not understand that command. Try: "
-                "Open Chrome · Open file report · Copy file report to Desktop · "
-                "Run Morning Setup · Search weather · Click Login"
+                "I couldn't fully understand that.\n"
+                f"You said: “{text}”\n"
+                f"Maybe you meant: {hints}"
             )
             log_id = self.audit.log_execution(
                 status="Failed",
                 duration_ms=duration,
                 error_message=msg,
-                details=parsed.to_dict(),
+                details={"parsed": parsed.to_dict(), "plan": plan.to_dict()},
                 user_id=user_id,
                 command_id=command_id,
             )
@@ -157,6 +180,8 @@ class AutomationPipeline:
             return {
                 "ok": False,
                 "parsed": parsed.to_dict(),
+                "plan": plan.to_dict(),
+                "suggestions": plan.suggestions,
                 "command_id": command_id,
                 "log_id": log_id,
                 "error": msg,
@@ -174,61 +199,102 @@ class AutomationPipeline:
         actions_done: List[Dict[str, Any]] = []
         captures: List[str] = []
         error: Optional[str] = None
+        completed = 0
 
         try:
-            steps = parsed.steps or [
-                {
-                    "intent": parsed.intent,
-                    "entities": parsed.entities,
-                    "confidence": parsed.confidence,
-                }
-            ]
-            self._ensure_live_automation([str(s.get("intent") or "") for s in steps])
-            for step in steps:
+            self._ensure_live_automation(plan.executable_intents())
+            before = None
+            action_count = 0
+            for step in plan.steps:
+                elapsed = time.perf_counter() - started
+                self.safety.check_time(elapsed)
                 if self._stop_requested:
-                    error = "Stopped by user"
+                    error = self._stop_reason or "Stopped by user"
                     break
-                if step.get("intent") == "unknown":
-                    error = (
-                        "Unrecognized step — please rephrase. "
-                        "Supported: open, click, fill, type, search, press, scroll, wait."
-                    )
-                    break
-                emit(f"Executing: {step.get('intent')}")
-                result = self._execute_step(step, user_id=user_id)
+                emit(f"● {step.title}")
+                step.status = "running"
+                if step.kind == "inspect":
+                    result = self._inspect_screen(str((step.entities or {}).get("element") or ""))
+                    actions_done.append(result)
+                    if result.get("capture_path"):
+                        captures.append(result["capture_path"])
+                    if result.get("boxes") is not None:
+                        self.last_boxes = result.get("boxes") or []
+                    step.status = "done"
+                    emit(f"✓ {step.title}")
+                    continue
+                if step.kind == "verify":
+                    after = self.vision.capture_screen()
+                    check = self.vision.frame_changed(before, after)
+                    result = {"intent": "verify_screen", "verification": check}
+                    actions_done.append(result)
+                    if self.safety.verify_change and not check.get("changed") and not self.automation.dry_run:
+                        emit("⚠ Screen did not change — retrying last action is up to the next step")
+                    step.status = "done" if check.get("changed") or self.automation.dry_run else "done"
+                    emit(f"✓ {step.title}" if check.get("changed") or self.automation.dry_run else f"⚠ {step.title}")
+                    before = after
+                    continue
+
+                action_count += 1
+                self.safety.check_actions(action_count)
+                before = self.vision.last_frame if step.intent in ("click_text", "click_button") else before
+                result = self._execute_step_with_retry(
+                    {"intent": step.intent, "entities": step.entities},
+                    user_id=user_id,
+                )
                 actions_done.append(result)
+                completed += 1
                 if result.get("capture_path"):
                     captures.append(result["capture_path"])
+                    self.last_capture_path = result["capture_path"]
                 if result.get("boxes") is not None:
                     self.last_boxes = result.get("boxes") or []
                 if self.vision.last_frame is not None:
                     self.last_frame = self.vision.last_frame
+                step.status = "done"
+                emit(f"✓ {step.title}")
+        except SafetyLimitError as exc:
+            error = str(exc)
         except Exception as exc:
             error = str(exc)
 
         duration = int((time.perf_counter() - started) * 1000)
         status = "Failed" if error else "Success"
-        if error and "Stopped" in error:
+        if error and ("Stopped" in error or "emergency" in error.lower()):
             status = "Exception"
+        remaining = max(0, len(plan.steps) - completed)
         log_id = self.audit.log_execution(
             status=status,
             duration_ms=duration,
             error_message=error or "",
-            details={"parsed": parsed.to_dict(), "actions": actions_done},
+            details={
+                "parsed": parsed.to_dict(),
+                "plan": plan.to_dict(),
+                "actions": actions_done,
+                "completed": completed,
+                "remaining": remaining,
+            },
             user_id=user_id,
             command_id=command_id,
             capture_paths=captures,
         )
-        emit("Done" if not error else f"Error: {error}")
+        if error:
+            emit(f"Error: {error}")
+        else:
+            emit("✓ Completed successfully")
         return {
             "ok": error is None,
             "parsed": parsed.to_dict(),
+            "plan": plan.to_dict(),
             "actions": actions_done,
             "command_id": command_id,
             "log_id": log_id,
             "error": error,
             "boxes": self.last_boxes,
             "dry_run": self.automation.dry_run,
+            "completed": completed,
+            "remaining": remaining,
+            "suggestions": plan.suggestions,
         }
 
     def run_workflow(
@@ -332,6 +398,58 @@ class AutomationPipeline:
             command_id=command_id,
             status_cb=status_cb,
         )
+
+    def _inspect_screen(self, element: str = "") -> Dict[str, Any]:
+        emit = getattr(self, "_status_cb", None) or (lambda _m: None)
+        emit("Reading the screen (OCR)…")
+        frame = self.vision.capture_screen()
+        preview = self.vision.ocr_preview(frame)
+        boxes = list(preview.boxes or [])
+        hit = None
+        if element.strip():
+            hit = self.vision.locate(element, frame=frame)
+            if hit.found:
+                boxes = hit.boxes or boxes
+        path = self.vision.save_capture(frame, label="inspect", boxes=boxes)
+        self.last_frame = frame
+        self.last_boxes = boxes
+        self.last_capture_path = path
+        return {
+            "intent": "inspect_screen",
+            "capture_path": path,
+            "boxes": boxes,
+            "detection": None
+            if hit is None
+            else {
+                "found": hit.found,
+                "label": hit.label,
+                "confidence": hit.confidence,
+                "method": hit.method,
+                "x": hit.x,
+                "y": hit.y,
+            },
+        }
+
+    def _execute_step_with_retry(
+        self, step: Dict[str, Any], *, user_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        last_exc: Optional[Exception] = None
+        attempts = max(1, int(self.safety.max_retries))
+        for attempt in range(1, attempts + 1):
+            if self._stop_requested:
+                raise RuntimeError(self._stop_reason or "Stopped by user")
+            try:
+                return self._execute_step(step, user_id=user_id)
+            except Exception as exc:
+                last_exc = exc
+                emit = getattr(self, "_status_cb", None) or (lambda _m: None)
+                if attempt >= attempts:
+                    break
+                emit(f"Not found / failed — retry {attempt}/{attempts - 1} after {self.safety.retry_delay:.1f}s")
+                self.automation.wait(self.safety.retry_delay)
+                self.vision.capture_screen()
+        assert last_exc is not None
+        raise last_exc
 
     def _click_element(self, element: str, entities: Dict[str, Any]) -> Dict[str, Any]:
         result: Dict[str, Any] = {"intent": "click_button", "entities": entities}
@@ -476,6 +594,10 @@ class AutomationPipeline:
 
         if intent in ("minimize_window", "restore_window"):
             result["note"] = "handled by the DAI window"
+            return result
+
+        if intent in ("inspect_screen", "verify_screen"):
+            result["note"] = "vision meta-step"
             return result
 
         if intent == "search_web":

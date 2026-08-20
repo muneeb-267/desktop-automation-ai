@@ -56,10 +56,14 @@ class HistoryPage(QWidget):
         cl.addWidget(self.table)
         root.addWidget(card, 1)
 
-        self.detail = QLabel("Select a row to inspect details and captures.")
+        self.detail = QLabel("Select a row to inspect the AI plan, actions, and captures.")
         self.detail.setObjectName("pageSubtitle")
         self.detail.setWordWrap(True)
         root.addWidget(self.detail)
+        self.plan_view = QLabel("")
+        self.plan_view.setObjectName("pageSubtitle")
+        self.plan_view.setWordWrap(True)
+        root.addWidget(self.plan_view)
         self.table.itemSelectionChanged.connect(self._on_select)
         self._rows: List[Dict[str, Any]] = []
         self._captures_by_log: Dict[int, List[Dict[str, Any]]] = {}
@@ -109,9 +113,24 @@ class HistoryPage(QWidget):
                 f"({cap.get('width')}×{cap.get('height')}) "
                 f"element={cap.get('element_found') or '—'}"
             )
-        capture_txt = "\n".join(capture_lines) if capture_lines else "No Screen_capture rows for this log."
+        capture_txt = "\n".join(capture_lines) if capture_lines else "No screenshots for this log."
+        plan = details.get("plan") if isinstance(details, dict) else {}
+        steps = []
+        if isinstance(plan, dict):
+            for st in plan.get("steps") or []:
+                mark = {"done": "✓", "failed": "✕"}.get(st.get("status"), "○")
+                steps.append(f"{mark} {st.get('title')}")
+        parsed = details.get("parsed") if isinstance(details, dict) else {}
+        conf = ""
+        if isinstance(parsed, dict) and parsed.get("confidence") is not None:
+            conf = f"{int(float(parsed.get('confidence') or 0) * 100)}%"
         self.detail.setText(
-            f"Status: {item.get('status')} | Duration: {item.get('duration_ms')} ms\n"
-            f"Details: {json.dumps(details)[:420]}\n"
-            f"Captures:\n{capture_txt}"
+            f"Execution #{item.get('log_id')}   ·   {item.get('status')}\n"
+            f"Duration: {item.get('duration_ms')} ms   ·   AI confidence: {conf or '—'}\n"
+            f"Completed: {details.get('completed', '—')}   Remaining: {details.get('remaining', '—')}\n"
+            f"Error: {item.get('error_message') or '—'}"
+        )
+        self.plan_view.setText(
+            ("Actions:\n" + "\n".join(steps[:12]) + "\n\n" if steps else "")
+            + f"Captures:\n{capture_txt}"
         )

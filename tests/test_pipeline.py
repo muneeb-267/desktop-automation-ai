@@ -59,6 +59,11 @@ def test_text_command_dry_run(tmp_path: Path):
     )
     assert voiced["parsed"]["intent"] == "type_text"
     assert voiced["ok"] is True
+    assert voiced.get("plan")
+
+    planned = pipeline.preview_plan("Open notepad and type hello")
+    assert planned.steps
+    assert planned.estimated_s >= 0
 
     db.close()
     reset_database_singleton()
@@ -73,5 +78,21 @@ def test_unknown_command(tmp_path: Path):
     pipeline = AutomationPipeline(cfg, db)
     result = pipeline.run_text_command("asdf qwer zxcv")
     assert result["ok"] is False
+    assert result.get("suggestions")
+    db.close()
+    reset_database_singleton()
+
+
+def test_preview_plan_and_stop_flag(tmp_path: Path):
+    reset_database_singleton()
+    cfg = load_config()
+    db = Database(tmp_path / "stop.db")
+    db.initialize_schema()
+    pipeline = AutomationPipeline(cfg, db)
+    pipeline.automation.set_dry_run(True)
+    plan = pipeline.preview_plan("Click Login")
+    assert any(s.intent in ("click_text", "inspect_screen") for s in plan.steps)
+    pipeline.request_stop("User requested emergency stop.")
+    assert pipeline._stop_requested is True
     db.close()
     reset_database_singleton()

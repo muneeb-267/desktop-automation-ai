@@ -17,16 +17,16 @@ class DaiOverlay(QWidget):
         flags = Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
-        self.setFixedSize(320, 140)
+        self.setFixedSize(300, 158)
         self._drag: QPoint | None = None
         self._hidden_for_action = False
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 10, 12, 10)
-        root.setSpacing(4)
+        root.setContentsMargins(14, 12, 14, 12)
+        root.setSpacing(6)
 
         top = QHBoxLayout()
-        self.dot = QLabel("●")
+        self.dot = QLabel("✦")
         self.dot.setObjectName("daiDot")
         self.title = QLabel("DAI")
         self.title.setObjectName("daiTitle")
@@ -44,7 +44,7 @@ class DaiOverlay(QWidget):
         self.line.setObjectName("daiLine")
         self.line.setWordWrap(True)
 
-        self.hint = QLabel("STT + execute · “minimize the screen” · “DAI close now”")
+        self.hint = QLabel("Say “DAI” to begin — STT, plan, then execute")
         self.hint.setObjectName("daiHint")
         self.hint.setWordWrap(True)
 
@@ -75,7 +75,7 @@ class DaiOverlay(QWidget):
         mode = (mode or "sleep").lower()
         if mode == "sleep":
             self.dot.setStyleSheet("color:#94a3b8;font-size:14px;")
-            self.line.setText(detail or "Say “DAI” to start")
+            self.line.setText(detail or "Ready — say “DAI” to begin")
         elif mode == "active":
             self.dot.setStyleSheet("color:#16a34a;font-size:14px;")
             self.line.setText(detail or "Listening — speak commands")

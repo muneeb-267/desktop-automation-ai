@@ -283,3 +283,32 @@ class VisionEngine:
         if hit.found:
             return hit
         return self.find_template(element, img)
+
+    def frame_changed(
+        self,
+        before,
+        after,
+        *,
+        threshold: float = 0.018,
+    ) -> Dict[str, Any]:
+        """Compare two RGB frames; used to verify that a click/open actually changed the UI."""
+        import numpy as np
+
+        if before is None or after is None:
+            return {"changed": True, "score": 1.0, "note": "missing frame"}
+        a = np.asarray(before)
+        b = np.asarray(after)
+        if a.shape != b.shape:
+            return {"changed": True, "score": 1.0, "note": "size changed"}
+        diff = float(np.mean(np.abs(a.astype("float32") - b.astype("float32"))) / 255.0)
+        return {"changed": diff >= threshold, "score": round(diff, 4), "note": ""}
+
+    def ocr_preview(self, frame=None, max_boxes: int = 24) -> DetectionResult:
+        """Run OCR for the AI Agent screen-understanding panel."""
+        img = frame if frame is not None else self.capture_screen()
+        dummy = self.find_text("___no_match___", frame=img)
+        dummy.found = bool(dummy.boxes)
+        dummy.boxes = (dummy.boxes or [])[:max_boxes]
+        dummy.label = f"{len(dummy.boxes)} OCR boxes"
+        dummy.method = "ocr-preview"
+        return dummy

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from src.config import load_config
-from src.db.database import Database, hash_password, reset_database_singleton
+from src.db.database import Database, reset_database_singleton
 from src.db.repositories import (
     ExecutionLogRepository,
     NLPCommandRepository,
@@ -27,7 +27,10 @@ def test_schema_signup_workspace_and_crud(tmp_path: Path):
     db.seed_user_workspace(uid, cfg)
     user = users.authenticate("muneeb", "secret123")
     assert user is not None
-    assert user["password"] == hash_password("secret123")
+    assert users.authenticate("muneeb", "wrong-password") is None
+    stored = user["password"]
+    assert stored != "secret123"
+    assert stored.startswith("bcrypt$") or stored.startswith("sha256$") or len(stored) == 64
     assert "email" in user
 
     conf = UserConfRepository(db).get_map(user["user_id"])
@@ -52,5 +55,29 @@ def test_schema_signup_workspace_and_crud(tmp_path: Path):
         "/tmp/fake.png", log_id=log_id, width=100, height=50, element_found="Login"
     )
     assert ExecutionLogRepository(db).recent(user_id=user["user_id"], limit=5)
+    stats = ExecutionLogRepository(db).stats(user["user_id"])
+    assert stats["total"] >= 1
+    assert "daily" in stats
+    assert "failed" in stats
+
+    try:
+        users.create("muneeb", "other@example.com", "secret123")
+        raised = False
+    except Exception:
+        raised = True
+    assert raised
+
+    db.close()
+    reset_database_singleton()
+
+
+def test_inactive_user_cannot_login(tmp_path: Path):
+    reset_database_singleton()
+    db = Database(tmp_path / "inactive.db")
+    db.initialize_schema()
+    users = UserRepository(db)
+    uid = users.create("ghost", "ghost@example.com", "secret123")
+    db.execute("UPDATE User SET is_active = 0 WHERE user_id = ?", (uid,))
+    assert users.authenticate("ghost", "secret123") is None
     db.close()
     reset_database_singleton()

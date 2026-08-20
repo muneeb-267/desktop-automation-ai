@@ -20,9 +20,12 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from src.gui.components.chart_widget import BarRatioWidget, LineChartWidget
+
 
 class DashboardPage(QWidget):
     open_voice = pyqtSignal()
+    open_agent = pyqtSignal()
     open_history = pyqtSignal()
     open_workflows = pyqtSignal()
     run_diagnostics = pyqtSignal()
@@ -52,11 +55,12 @@ class DashboardPage(QWidget):
 
         metrics = QHBoxLayout()
         metrics.setSpacing(12)
-        self.m_total = self._metric("Total Automations", "0", "From your history")
+        self.m_total = self._metric("Total executions", "0", "From your history")
         self.m_rate = self._metric("Success Rate", "—", "Across all executions")
-        self.m_active = self._metric("Active Processes", "0", "Ready")
+        self.m_failed = self._metric("Failed", "0", "Needs review")
         self.m_today = self._metric("Executions Today", "0", "Local SQLite logs")
-        for w in (self.m_total, self.m_rate, self.m_active, self.m_today):
+        self.m_avg = self._metric("Avg time", "—", "Milliseconds")
+        for w in (self.m_total, self.m_rate, self.m_failed, self.m_today, self.m_avg):
             metrics.addWidget(w, 1)
         root.addLayout(metrics)
 
@@ -69,18 +73,13 @@ class DashboardPage(QWidget):
         tl.setContentsMargins(18, 16, 18, 16)
         tl.setSpacing(8)
         tl.addWidget(self._section("Automation Trend"))
-        ts = QLabel("Execution volume from local history.")
+        ts = QLabel("Executions per day (last 7 days).")
         ts.setObjectName("pageSubtitle")
         tl.addWidget(ts)
-        self.trend_label = QLabel("Run commands to populate trend data.")
-        self.trend_label.setAlignment(Qt.AlignCenter)
-        self.trend_label.setMinimumHeight(140)
-        self.trend_label.setWordWrap(True)
-        self.trend_label.setStyleSheet(
-            "background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;"
-            "color:#64748b;padding:16px;"
-        )
-        tl.addWidget(self.trend_label, 1)
+        self.trend_chart = LineChartWidget()
+        tl.addWidget(self.trend_chart, 1)
+        self.ratio = BarRatioWidget()
+        tl.addWidget(self.ratio)
 
         side = QVBoxLayout()
         side.setSpacing(12)
@@ -95,7 +94,7 @@ class DashboardPage(QWidget):
         b1.setObjectName("btnPrimary")
         b1.setMinimumHeight(36)
         b1.clicked.connect(self.open_workflows.emit)
-        b2 = QPushButton("Run System Diagnostics")
+        b2 = QPushButton("Open Diagnostics")
         b2.setObjectName("btnSecondary")
         b2.setMinimumHeight(34)
         b2.clicked.connect(self.run_diagnostics.emit)
@@ -181,17 +180,17 @@ class DashboardPage(QWidget):
         tip.setObjectName("pageSubtitle")
         vl.addWidget(tip)
         vl.addStretch(1)
-        launch = QPushButton("Launch Assistant")
+        launch = QPushButton("Launch AI Agent")
         launch.setObjectName("btnPrimary")
         launch.setMinimumHeight(38)
-        launch.clicked.connect(self.open_voice.emit)
+        launch.clicked.connect(self.open_agent.emit)
         vl.addWidget(launch)
 
         bottom.addWidget(table_wrap, 7)
         bottom.addWidget(voice, 3)
         root.addLayout(bottom)
 
-        foot = QLabel("© 2026 Automate AI · Local desktop automation")
+        foot = QLabel("© 2026 Automate AI · Your desktop. Your commands. Automated.")
         foot.setObjectName("footerLabel")
         root.addWidget(foot)
 
@@ -235,13 +234,27 @@ class DashboardPage(QWidget):
 
     def update_stats(self, stats: Dict[str, Any], dry_run: bool = True) -> None:
         total = int(stats.get("total", 0) or 0)
+        success = int(stats.get("success", 0) or 0)
+        failed = int(stats.get("failed", 0) or 0)
         self.m_total.value_label.setText(str(total))  # type: ignore[attr-defined]
         rate = stats.get("success_rate", 100)
         self.m_rate.value_label.setText(f"{rate}%" if total else "—")  # type: ignore[attr-defined]
-        self.m_active.value_label.setText("0" if dry_run else "1")  # type: ignore[attr-defined]
-        self.m_active.hint_label.setText("Ready" if dry_run else "Live")  # type: ignore[attr-defined]
+        self.m_failed.value_label.setText(str(failed))  # type: ignore[attr-defined]
         self.m_today.value_label.setText(str(stats.get("today", 0)))  # type: ignore[attr-defined]
+        avg = int(stats.get("avg_ms") or 0)
+        self.m_avg.value_label.setText(f"{avg} ms" if total else "—")  # type: ignore[attr-defined]
         self.res_cpu.setText(f"Mode: {'Dry-run safe' if dry_run else 'LIVE automation'}")
+        self.ratio.set_counts(success, failed)
+        from datetime import date, timedelta
+
+        daily = stats.get("daily") or {}
+        points = []
+        today = date.today()
+        for i in range(6, -1, -1):
+            d = today - timedelta(days=i)
+            key = d.isoformat()
+            points.append((d.strftime("%a"), float(daily.get(key, 0))))
+        self.trend_chart.set_series(points)
 
     def update_activity(self, rows: List[Dict[str, Any]]) -> None:
         self.table.setRowCount(0)
@@ -272,10 +285,4 @@ class DashboardPage(QWidget):
                 cell.setToolTip(val)
                 self.table.setItem(r, c, cell)
         count = len(rows)
-        if count:
-            self.trend_label.setText(
-                f"Recent executions tracked: {count}\n"
-                "Peak activity updates as you run commands."
-            )
-        else:
-            self.trend_label.setText("Run commands to populate trend data.")
+        _ = count

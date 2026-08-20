@@ -75,7 +75,7 @@ class LoginDialog(QDialog):
         h1 = QLabel("Control your <u>desktop</u>")
         h1.setObjectName("brandHeadline")
         h1.setTextFormat(Qt.RichText)
-        h2 = QLabel("using voice commands.")
+        h2 = QLabel("Your desktop. Your commands. Automated.")
         h2.setObjectName("brandHeadlineAccent")
         body_txt = QLabel(
             "Use natural language to open applications, files, folders, and automate desktop tasks."
@@ -86,11 +86,11 @@ class LoginDialog(QDialog):
         feature = QFrame()
         feature.setObjectName("featureCard")
         fl = QVBoxLayout(feature)
-        ft = QLabel("Say it. Automated.")
+        ft = QLabel("AI desktop agent")
         ft.setObjectName("featureCardTitle")
         fb = QLabel(
-            "Our neural command engine translates complex natural language into precise "
-            "system-level executions within milliseconds."
+            "Understands a goal, builds an action plan, finds on-screen elements, "
+            "acts safely, and verifies the result."
         )
         fb.setObjectName("featureCardBody")
         fb.setWordWrap(True)

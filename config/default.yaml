@@ -2,8 +2,8 @@ app:
   name: "Automate AI"
   product_name: "AI Desktop Automation"
   group_id: "S26CS089"
-  version: "0.1.12-alpha"
-  tagline: "Control your desktop using voice commands."
+  version: "0.2.0-fyp"
+  tagline: "Your desktop. Your commands. Automated."
 
 paths:
   data_dir: "data"
@@ -44,6 +44,7 @@ speech:
 nlp:
   spacy_model: "en_core_web_sm"
   min_confidence: 0.45
+  mode: local
 
 vision:
   ocr_lang: "eng"
@@ -58,6 +59,11 @@ automation:
   move_duration: 0.05
   post_action_delay: 0.06
   app_launch_wait: 0.45
+  max_actions: 30
+  max_seconds: 60
+  max_retries: 3
+  retry_delay: 0.45
+  verify_actions: true
 
 auth:
   # Real accounts via Sign Up — no demo user is created by default

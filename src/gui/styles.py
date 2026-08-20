@@ -63,11 +63,11 @@ QComboBox QAbstractItemView {
 }
 QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus,
 QSpinBox:focus, QDoubleSpinBox:focus {
-    border: 1px solid #0f172a;
+    border: 1px solid #4f46e5;
 }
 
 QPushButton {
-    background: #0f172a;
+    background: #4f46e5;
     color: #ffffff;
     border: none;
     border-radius: 8px;
@@ -75,8 +75,8 @@ QPushButton {
     font-weight: 600;
     min-height: 20px;
 }
-QPushButton:hover { background: #1e293b; }
-QPushButton:pressed { background: #020617; }
+QPushButton:hover { background: #4338ca; }
+QPushButton:pressed { background: #3730a3; }
 QPushButton:disabled { background: #94a3b8; color: #f8fafc; }
 
 QPushButton#btnGhost, QPushButton#btnSecondary {
@@ -99,8 +99,8 @@ QPushButton#btnNav {
 }
 QPushButton#btnNav:hover { background: #eef2f7; }
 QPushButton#btnNav[active="true"] {
-    background: #e8eef6;
-    color: #0f172a;
+    background: #eef2ff;
+    color: #3730a3;
     font-weight: 700;
 }
 
@@ -120,7 +120,7 @@ QPushButton#btnMicBig:disabled { background: #94a3b8; }
 QPushButton#btnDanger { background: #b91c1c; color: #ffffff; }
 QPushButton#btnDanger:hover { background: #991b1b; }
 QPushButton#btnPrimary {
-    background: #0f172a;
+    background: #4f46e5;
     color: #ffffff;
     padding: 10px 18px;
     font-weight: 700;
@@ -324,15 +324,15 @@ QComboBox QAbstractItemView {
 }
 
 QPushButton {
-    background: #38bdf8;
-    color: #0f172a;
+    background: #6366f1;
+    color: #ffffff;
     border: none;
     border-radius: 8px;
     padding: 9px 14px;
     font-weight: 700;
     min-height: 20px;
 }
-QPushButton:hover { background: #7dd3fc; }
+QPushButton:hover { background: #818cf8; }
 QPushButton:disabled { background: #475569; color: #cbd5e1; }
 QPushButton#btnGhost, QPushButton#btnSecondary {
     background: #1e293b; color: #e2e8f0; border: 1px solid #334155;
@@ -347,13 +347,13 @@ QPushButton#btnNav[active="true"] {
     background: #1e293b; color: #f8fafc; font-weight: 700;
 }
 QPushButton#btnMicBig {
-    background: #38bdf8; color: #0f172a; border-radius: 28px;
+    background: #6366f1; color: #ffffff; border-radius: 28px;
     min-width: 96px; max-width: 120px; min-height: 56px; max-height: 56px;
     font-size: 14px; font-weight: 700;
 }
 QPushButton#btnDanger { background: #ef4444; color: #ffffff; }
 QPushButton#btnPrimary {
-    background: #38bdf8; color: #0f172a; padding: 10px 18px; font-weight: 700;
+    background: #6366f1; color: #ffffff; padding: 10px 18px; font-weight: 700;
 }
 
 #sideBar { background: #111827; border-right: 1px solid #1e293b; }

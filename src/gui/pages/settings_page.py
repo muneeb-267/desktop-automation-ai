@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSlider,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -43,7 +44,7 @@ class SettingsPage(QWidget):
         title = QLabel("System Settings")
         title.setObjectName("pageTitle")
         sub = QLabel(
-            "Configure theme, microphone sensitivity, and automation safety protocols."
+            "General, AI planner, voice, automation safety, and privacy — local vs AI-enhanced."
         )
         sub.setObjectName("pageSubtitle")
         sub.setWordWrap(True)
@@ -104,6 +105,49 @@ class SettingsPage(QWidget):
         cl.addWidget(self.failsafe)
         cl.addLayout(pause_row)
 
+        # AI
+        cl.addWidget(self._section("AI"))
+        self.ai_mode = QComboBox()
+        self.ai_mode.addItems(["local", "enhanced"])
+        self.ai_mode.setMinimumHeight(34)
+        self.confirm_plan = QCheckBox("Explain plan and wait for Execute on the AI Agent page")
+        self.confirm_plan.setChecked(True)
+        self.min_conf = QDoubleSpinBox()
+        self.min_conf.setRange(0.2, 0.95)
+        self.min_conf.setSingleStep(0.05)
+        self.min_conf.setValue(0.45)
+        ai_form = QFormLayout()
+        ai_form.addRow("Planner mode", self.ai_mode)
+        ai_form.addRow("Confidence threshold", self.min_conf)
+        cl.addLayout(ai_form)
+        cl.addWidget(self.confirm_plan)
+        mode_tip = QLabel(
+            "Local = offline NLP planner + Vosk. Enhanced = same planner plus optional cloud STT keys."
+        )
+        mode_tip.setObjectName("pageSubtitle")
+        mode_tip.setWordWrap(True)
+        cl.addWidget(mode_tip)
+
+        # Limits
+        cl.addWidget(self._section("Automation limits"))
+        self.max_actions = QSpinBox()
+        self.max_actions.setRange(3, 200)
+        self.max_actions.setValue(30)
+        self.max_seconds = QSpinBox()
+        self.max_seconds.setRange(5, 600)
+        self.max_seconds.setValue(60)
+        self.max_retries = QSpinBox()
+        self.max_retries.setRange(1, 8)
+        self.max_retries.setValue(3)
+        self.verify_actions = QCheckBox("Verify screen changed after clicks")
+        self.verify_actions.setChecked(True)
+        lim = QFormLayout()
+        lim.addRow("Max actions / command", self.max_actions)
+        lim.addRow("Max seconds / command", self.max_seconds)
+        lim.addRow("Retries per action", self.max_retries)
+        cl.addLayout(lim)
+        cl.addWidget(self.verify_actions)
+
         # Voice
         cl.addWidget(self._section("Voice / microphone"))
         sens_head = QHBoxLayout()
@@ -156,6 +200,16 @@ class SettingsPage(QWidget):
         keys.addRow("Gemini", self.gemini_key)
         cl.addLayout(keys)
 
+        cl.addWidget(self._section("Privacy"))
+        self.cloud_ai = QCheckBox("Allow cloud AI (Whisper / Gemini) when keys are set")
+        self.store_shots = QCheckBox("Store screenshots in SQLite / data/captures")
+        self.store_shots.setChecked(True)
+        self.store_history = QCheckBox("Store command history")
+        self.store_history.setChecked(True)
+        cl.addWidget(self.cloud_ai)
+        cl.addWidget(self.store_shots)
+        cl.addWidget(self.store_history)
+
         # Actions — avoid bare "&" (Qt mnemonic); use separate buttons
         actions = QHBoxLayout()
         actions.setSpacing(10)
@@ -192,6 +246,20 @@ class SettingsPage(QWidget):
             self.openai_key.setText(str(conf.get("openai_api_key")))
         if conf.get("gemini_api_key"):
             self.gemini_key.setText(str(conf.get("gemini_api_key")))
+        idxm = self.ai_mode.findText(str(conf.get("ai_mode", "local")))
+        self.ai_mode.setCurrentIndex(idxm if idxm >= 0 else 0)
+        self.confirm_plan.setChecked(str(conf.get("confirm_plan", "1")) in ("1", "true", "True"))
+        try:
+            self.min_conf.setValue(float(conf.get("min_confidence", 0.45)))
+        except (TypeError, ValueError):
+            pass
+        self.max_actions.setValue(int(float(conf.get("max_actions", 30))))
+        self.max_seconds.setValue(int(float(conf.get("max_seconds", 60))))
+        self.max_retries.setValue(int(float(conf.get("max_retries", 3))))
+        self.verify_actions.setChecked(str(conf.get("verify_actions", "1")) in ("1", "true", "True"))
+        self.cloud_ai.setChecked(str(conf.get("cloud_ai", "0")) in ("1", "true", "True"))
+        self.store_shots.setChecked(str(conf.get("store_screenshots", "1")) in ("1", "true", "True"))
+        self.store_history.setChecked(str(conf.get("store_history", "1")) in ("1", "true", "True"))
 
     def _save(self) -> None:
         payload = {
@@ -201,6 +269,16 @@ class SettingsPage(QWidget):
             "pause_seconds": str(self.pause.value()),
             "voice_sensitivity": f"{self.voice.value() / 100:.2f}",
             "mic_sensitivity": f"{self.voice.value() / 100:.2f}",
+            "ai_mode": self.ai_mode.currentText(),
+            "confirm_plan": "1" if self.confirm_plan.isChecked() else "0",
+            "min_confidence": str(self.min_conf.value()),
+            "max_actions": str(self.max_actions.value()),
+            "max_seconds": str(self.max_seconds.value()),
+            "max_retries": str(self.max_retries.value()),
+            "verify_actions": "1" if self.verify_actions.isChecked() else "0",
+            "cloud_ai": "1" if self.cloud_ai.isChecked() else "0",
+            "store_screenshots": "1" if self.store_shots.isChecked() else "0",
+            "store_history": "1" if self.store_history.isChecked() else "0",
         }
         if self.openai_key.text().strip():
             payload["openai_api_key"] = self.openai_key.text().strip()

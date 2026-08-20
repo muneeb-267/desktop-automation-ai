@@ -162,13 +162,35 @@ class NLPEngine:
             or re.search(r"\bcopy\b.+\band\s+paste\b", raw, flags=re.I)
         )
 
-        # Split on " and " only when it joins commands (not inside quoted text)
-        if (
+        # Split on "then" / "and then" / "and" when they join commands (not quoted / copy-paste)
+        then_split = bool(
             not copy_paste
+            and re.search(r"\b(?:and\s+then|then)\b", raw, flags=re.I)
+            and not re.search(r"[\"'].*\bthen\b.*[\"']", raw, flags=re.I)
+        )
+        and_split = bool(
+            not copy_paste
+            and not then_split
             and re.search(r"\band\b", raw, flags=re.I)
             and not re.search(r"[\"'].*\band\b.*[\"']", raw, flags=re.I)
-        ):
-            parts = re.split(r"\band\b", raw, flags=re.I)
+        )
+        if then_split or and_split:
+            parts = re.split(
+                r"\s*(?:,\s*)?(?:and\s+then|then|, and|and)\s+",
+                raw,
+                flags=re.I,
+            ) if then_split else re.split(r"\band\b", raw, flags=re.I)
+            extra: List[str] = []
+            for part in parts:
+                extra.extend(
+                    re.split(
+                        r"\s*,\s*(?=(?:open|launch|search|google|click|tap|type|"
+                        r"wait|run|press|scroll|copy|move|fill|write)\b)",
+                        part,
+                        flags=re.I,
+                    )
+                )
+            parts = extra
             steps: List[Dict[str, Any]] = []
             confidences: List[float] = []
             for part in parts:
@@ -303,6 +325,8 @@ class NLPEngine:
             return "restore_window", 0.95
         if any(w in lemmas for w in ("wait", "pause", "sleep")):
             return "wait", 0.93
+        if re.search(r"\b(first|top|1st)\s+(search\s+)?(result|link|hit)\b", lower):
+            return "click_text", 0.9
         # Open file / folder / document before generic open_app
         if re.search(
             r"\b(open|launch|show|start)\s+(?:(?:the|my|a|an)\s+)?"
@@ -404,6 +428,10 @@ class NLPEngine:
                 re.I,
             )
             entities["element"] = (m.group(1) if m else "").strip(" \"'")
+            if not entities["element"] and re.search(
+                r"\b(first|top|1st)\s+(search\s+)?(result|link|hit)\b", text, re.I
+            ):
+                entities["element"] = "1"
             if intent == "click_button":
                 entities["element_type"] = "button"
         elif intent == "fill_form":

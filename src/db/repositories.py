@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 
-from src.db.database import Database, hash_password
+from src.db.database import Database, hash_password, verify_password
 
 
 class UserRepository:
@@ -13,15 +13,19 @@ class UserRepository:
         self.db = db
 
     def authenticate(self, username_or_email: str, password: str) -> Optional[Dict[str, Any]]:
-        pwd = hash_password(password)
         row = self.db.fetchone(
             """
             SELECT * FROM User
-            WHERE (username = ? OR email = ?) AND password = ? AND is_active = 1
+            WHERE (username = ? OR email = ?) AND is_active = 1
             """,
-            (username_or_email, username_or_email, pwd),
+            (username_or_email, username_or_email),
         )
-        return dict(row) if row else None
+        if not row:
+            return None
+        user = dict(row)
+        if not verify_password(password, str(user.get("password") or "")):
+            return None
+        return user
 
     def create(self, username: str, email: str, password: str) -> int:
         cur = self.db.execute(
@@ -312,11 +316,35 @@ class ExecutionLogRepository:
         total_c = int(total["c"]) if total else 0
         success_c = int(success["c"]) if success else 0
         rate = (success_c / total_c * 100.0) if total_c else 100.0
+        failed = self.db.fetchone(
+            "SELECT COUNT(*) AS c FROM Execution_log WHERE user_id = ? AND status = 'Failed'",
+            (user_id,),
+        )
+        avg = self.db.fetchone(
+            "SELECT AVG(duration_ms) AS a FROM Execution_log WHERE user_id = ?",
+            (user_id,),
+        )
+        daily_rows = self.db.fetchall(
+            """
+            SELECT date(started_at) AS d, COUNT(*) AS c
+            FROM Execution_log
+            WHERE user_id = ? AND started_at >= date('now', '-6 days')
+            GROUP BY date(started_at)
+            ORDER BY d ASC
+            """,
+            (user_id,),
+        )
+        daily = {str(r["d"]): int(r["c"]) for r in daily_rows}
+        failed_c = int(failed["c"]) if failed else 0
+        avg_ms = float(avg["a"] or 0) if avg else 0.0
         return {
             "total": total_c,
             "success": success_c,
+            "failed": failed_c,
             "success_rate": round(rate, 1),
             "today": int(today["c"]) if today else 0,
+            "avg_ms": int(avg_ms),
+            "daily": daily,
         }
 
 

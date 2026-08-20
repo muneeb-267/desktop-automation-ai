@@ -104,6 +104,13 @@ Voice is never 100% perfect, but this build is faster (short audio chunks +
 run as soon as a full command is heard) and more reliable (wake grammar,
 filler stripping, unknown speech is typed as text).
 
+AI AGENT (FYP demo)
+-------------------
+Sidebar → AI Agent: type a goal → Explain plan → Execute.
+The plan shows confidence, steps, and screen boxes after vision runs.
+Emergency stop: Ctrl+Shift+Esc or the red STOP button.
+Passwords use bcrypt (salted). Settings: Local vs Enhanced, retries, max actions.
+
 
 LOGIN
 -----

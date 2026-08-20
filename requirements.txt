@@ -16,6 +16,7 @@ PyYAML>=6.0
 pytest>=7.4.0
 vosk>=0.3.44
 sounddevice>=0.4.6
+bcrypt>=4.1.0
 
 # Optional laptop-mic backend (Chrome voice works without this).
 # Installed separately by INSTALL_ON_YOUR_WINDOWS_PC.bat so a PyAudio
