@@ -9,6 +9,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from src.vision.search_result import (
+    FIRST_RESULT_ELEMENT,
+    is_first_result_phrase,
+    pick_first_search_result,
+    text_matches_query,
+)
+
 
 @dataclass
 class DetectionResult:
@@ -41,6 +48,7 @@ class VisionEngine:
         self.captures_dir.mkdir(parents=True, exist_ok=True)
         self.templates_dir.mkdir(parents=True, exist_ok=True)
         self._last_frame_rgb: Optional[np.ndarray] = None
+        self.last_region = {"left": 0, "top": 0, "width": 0, "height": 0}
 
     def capture_screen(self) -> np.ndarray:
         """Return RGB numpy array of the primary (or configured) monitor."""
@@ -58,12 +66,19 @@ class VisionEngine:
                 shot = sct.grab(mon)
                 img = Image.frombytes("RGB", shot.size, shot.rgb)
                 frame = np.array(img)
+                self.last_region = {
+                    "left": int(mon.get("left") or 0),
+                    "top": int(mon.get("top") or 0),
+                    "width": int(frame.shape[1]),
+                    "height": int(frame.shape[0]),
+                }
         except Exception as exc:
             self._capture_ok = False
             self._capture_error = str(exc)
             # Headless / restricted environments: synthetic frame
             frame = np.zeros((540, 960, 3), dtype=np.uint8)
             frame[:] = (32, 40, 48)
+            self.last_region = {"left": 0, "top": 0, "width": 960, "height": 540}
         self._last_frame_rgb = frame
         return frame
 
@@ -109,31 +124,24 @@ class VisionEngine:
         cv2.imwrite(str(path), bgr)
         return str(path)
 
-    def find_text(self, query: str, frame: Optional[np.ndarray] = None) -> DetectionResult:
-        """Locate on-screen text via Tesseract OCR and return center coordinates."""
+    def _ocr_words(self, img) -> List[Dict[str, Any]]:
         import cv2
-
-        img = frame if frame is not None else self.capture_screen()
-        query_l = query.strip().lower()
-        if not query_l:
-            return DetectionResult(found=False, label=query, method="ocr")
 
         try:
             import pytesseract
             from pytesseract import Output
-
-            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-            # Mild denoise helps OCR on noisy desktop captures
-            gray = cv2.GaussianBlur(gray, (3, 3), 0)
+        except Exception:
+            return []
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)
+        try:
             data = pytesseract.image_to_data(
                 gray, lang=self.ocr_lang, output_type=Output.DICT
             )
         except Exception:
-            return DetectionResult(found=False, label=query, method="ocr", confidence=0.0)
-
-        boxes: List[Dict[str, Any]] = []
-        n = len(data.get("text", []))
+            return []
         words: List[Dict[str, Any]] = []
+        n = len(data.get("text", []))
         for i in range(n):
             text = (data["text"][i] or "").strip()
             if not text:
@@ -144,19 +152,33 @@ class VisionEngine:
                 conf = -1.0
             if conf < 35:
                 continue
-            x, y, w, h = data["left"][i], data["top"][i], data["width"][i], data["height"][i]
-            item = {
-                "x": x,
-                "y": y,
-                "w": w,
-                "h": h,
-                "label": text,
-                "conf": conf,
-                "line": data.get("line_num", [0] * n)[i],
-                "block": data.get("block_num", [0] * n)[i],
-            }
-            boxes.append(item)
-            words.append(item)
+            words.append(
+                {
+                    "x": data["left"][i],
+                    "y": data["top"][i],
+                    "w": data["width"][i],
+                    "h": data["height"][i],
+                    "label": text,
+                    "conf": conf,
+                    "line": data.get("line_num", [0] * n)[i],
+                    "block": data.get("block_num", [0] * n)[i],
+                }
+            )
+        return words
+
+    def find_text(self, query: str, frame: Optional[np.ndarray] = None) -> DetectionResult:
+        """Locate on-screen text via Tesseract OCR and return center coordinates."""
+        img = frame if frame is not None else self.capture_screen()
+        query_l = query.strip().lower()
+        if not query_l:
+            return DetectionResult(found=False, label=query, method="ocr")
+        if is_first_result_phrase(query_l):
+            return self.find_first_search_result(img)
+
+        words = self._ocr_words(img)
+        boxes = list(words)
+        if not words:
+            return DetectionResult(found=False, label=query, method="ocr", confidence=0.0, boxes=boxes)
 
         best: Optional[DetectionResult] = None
 
@@ -177,15 +199,11 @@ class VisionEngine:
             if best is None or candidate.confidence > best.confidence:
                 best = candidate
 
-        # Single-word matches
         for item in words:
-            text_l = item["label"].lower()
-            if query_l in text_l or text_l in query_l:
+            if text_matches_query(item["label"], query_l):
                 consider(item["label"], item["x"], item["y"], item["w"], item["h"], item["conf"])
 
-        # Multi-word / phrase matches by joining same-line neighbors
         if " " in query_l and words:
-            # Group by block+line
             lines: Dict[Tuple[Any, Any], List[Dict[str, Any]]] = {}
             for item in words:
                 key = (item.get("block"), item.get("line"))
@@ -201,7 +219,6 @@ class VisionEngine:
                     avg_conf = sum(w["conf"] for w in group) / max(1, len(group))
                     consider(joined, x0, y0, x1 - x0, y1 - y0, avg_conf)
                 else:
-                    # Sliding window of consecutive words
                     for i in range(len(group)):
                         for j in range(i + 1, len(group) + 1):
                             chunk = group[i:j]
@@ -218,6 +235,27 @@ class VisionEngine:
             best.boxes = boxes
             return best
         return DetectionResult(found=False, label=query, method="ocr", boxes=boxes)
+
+    def find_first_search_result(self, frame: Optional[np.ndarray] = None) -> DetectionResult:
+        img = frame if frame is not None else self.capture_screen()
+        words = self._ocr_words(img)
+        h, w = img.shape[:2]
+        hit = pick_first_search_result(words, w, h)
+        if not hit:
+            return DetectionResult(
+                found=False, label="first result", method="first-result", boxes=list(words)
+            )
+        return DetectionResult(
+            found=True,
+            x=int(hit["x"] + hit["w"] // 2),
+            y=int(hit["y"] + hit["h"] // 2),
+            width=int(hit["w"]),
+            height=int(hit["h"]),
+            label=str(hit.get("label") or "first result"),
+            method="first-result",
+            confidence=0.86,
+            boxes=list(words) + [hit],
+        )
 
     def find_template(
         self, template_name: str, frame: Optional[np.ndarray] = None
@@ -274,6 +312,8 @@ class VisionEngine:
         frame: Optional[np.ndarray] = None,
     ) -> DetectionResult:
         img = frame if frame is not None else self.capture_screen()
+        if is_first_result_phrase(element) or element == FIRST_RESULT_ELEMENT:
+            return self.find_first_search_result(img)
         if prefer == "template":
             hit = self.find_template(element, img)
             if hit.found:

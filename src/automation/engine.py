@@ -27,6 +27,7 @@ class AutomationEngine:
         self._pyautogui = None
         self._pyautogui_error = ""
         self._pyautogui = self._load_pyautogui()
+        self.capture_region: Dict[str, Any] = {}
 
     def _load_pyautogui(self):
         """Import PyAutoGUI; tolerate missing tkinter/MouseInfo on some Linux setups."""
@@ -113,14 +114,37 @@ class AutomationEngine:
     def click(
         self, x: Optional[int] = None, y: Optional[int] = None, button: str = "left", clicks: int = 1
     ) -> Dict[str, Any]:
-        entry = self._record("click", x=x, y=y, button=button, clicks=clicks)
+        mapped_x, mapped_y = x, y
+        if x is not None and y is not None and self._pyautogui is not None:
+            mapped_x, mapped_y = self.map_capture_point(int(x), int(y))
+        entry = self._record("click", x=mapped_x, y=mapped_y, button=button, clicks=clicks)
         if not self.dry_run and self._pyautogui:
-            if x is not None and y is not None:
-                self._pyautogui.click(x, y, clicks=clicks, button=button, interval=0.08)
+            if mapped_x is not None and mapped_y is not None:
+                self._pyautogui.click(mapped_x, mapped_y, clicks=clicks, button=button, interval=0.08)
             else:
                 self._pyautogui.click(clicks=clicks, button=button)
             self._sleep()
         return entry
+
+    def map_capture_point(self, x: int, y: int, region: Optional[Dict[str, Any]] = None) -> tuple:
+        """Map screenshot pixels onto PyAutoGUI's logical screen (Windows DPI)."""
+        if self._pyautogui is None:
+            return x, y
+        try:
+            sw, sh = self._pyautogui.size()
+        except Exception:
+            return x, y
+        info = region if isinstance(region, dict) else getattr(self, "capture_region", None)
+        if not isinstance(info, dict):
+            info = {}
+        fw = int(info.get("width") or 0)
+        fh = int(info.get("height") or 0)
+        left = int(info.get("left") or 0)
+        top = int(info.get("top") or 0)
+        if fw > 0 and fh > 0 and sw > 0 and sh > 0 and (fw != sw or fh != sh):
+            x = int(round(x * (sw / float(fw))))
+            y = int(round(y * (sh / float(fh))))
+        return x + left, y + top
 
     def double_click(self, x: Optional[int] = None, y: Optional[int] = None) -> Dict[str, Any]:
         return self.click(x=x, y=y, clicks=2)

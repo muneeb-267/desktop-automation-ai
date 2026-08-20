@@ -50,7 +50,7 @@ from src.gui.window_fit import apply_standard_window_chrome, fit_to_screen
 from src.gui.workflow_editor import WorkflowEditorDialog
 from src.gui.workers import CommandWorker, SpeechWorker, WorkflowWorker
 from src.nlp.clarify import clarify_heard
-from src.speech.dai_chrome import DaiChromeThread, chrome_available
+from src.speech.dai_chrome import DaiChromeThread, chrome_available, set_dai_chrome_minimized
 from src.speech.wake import (
     classify_utterance,
     clean_spoken_command,
@@ -522,6 +522,7 @@ class MainWindow(QMainWindow):
         ):
             if self._dai_overlay:
                 self._dai_overlay.hide_for_action()
+            set_dai_chrome_minimized(True)
             self.showMinimized()
             QApplication.processEvents()
         if not self.pipeline.automation.recording:
@@ -541,6 +542,7 @@ class MainWindow(QMainWindow):
         self._live_desktop = False
         if self._dai_overlay:
             self._dai_overlay.show_after_action()
+        set_dai_chrome_minimized(False)
         if self.isMinimized() and not live:
             self.showNormal()
             self.raise_()
@@ -578,7 +580,16 @@ class MainWindow(QMainWindow):
             nxt = self._dai_queue.pop(0)
             QTimer.singleShot(80, lambda: self._run_command(nxt, source="voice", live_desktop=True))
         elif live:
-            self._put_dai_to_sleep("Done. Sleeping — say DAI wakeup")
+            if result.get("dry_run"):
+                self._put_dai_to_sleep(
+                    "Dry-run only — nothing was clicked. Turn off Dry-run in Settings."
+                )
+            elif result.get("ok"):
+                self._put_dai_to_sleep("Done. Sleeping — say DAI wakeup")
+            else:
+                self._put_dai_to_sleep(
+                    (result.get("error") or "Click failed")[:80] + " — say DAI wakeup"
+                )
 
     def _stop_workers(self) -> None:
         self.pipeline.request_stop("Stopped by user")

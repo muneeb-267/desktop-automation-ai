@@ -356,10 +356,20 @@ class DaiChromeThread(QThread):
         except Exception:
             pass
 
+    def _chrome_corner(self) -> tuple:
+        try:
+            import ctypes
+
+            height = int(ctypes.windll.user32.GetSystemMetrics(1))
+            return 12, max(48, height - 168)
+        except Exception:
+            return 12, 720
+
     def _start_chrome(self, chrome: str) -> None:
         profile = Path(tempfile.gettempdir()) / "automate-ai-dai-chrome"
         profile.mkdir(parents=True, exist_ok=True)
         url = f"http://{self.host}:{self.port}/"
+        pos_x, pos_y = self._chrome_corner()
         self._proc = subprocess.Popen(
             [
                 chrome,
@@ -371,10 +381,52 @@ class DaiChromeThread(QThread):
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--disable-session-crashed-bubble",
-                "--window-size=380,160",
-                "--window-position=36,36",
+                "--window-size=320,120",
+                f"--window-position={pos_x},{pos_y}",
                 f"--user-data-dir={profile}",
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+
+
+def set_dai_chrome_minimized(minimized: bool) -> int:
+    """Minimize the DAI Google Mic window so clicks hit the real page underneath."""
+    if platform_name() != "windows":
+        return 0
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except Exception:
+        return 0
+
+    user32 = ctypes.windll.user32
+    SW_MINIMIZE = 6
+    SW_RESTORE = 9
+    found = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+    def _enum(hwnd, _lp):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length <= 0:
+            return True
+        buf = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buf, length + 1)
+        title = buf.value or ""
+        if "DAI Google Mic" in title:
+            found.append(hwnd)
+        return True
+
+    user32.EnumWindows(_enum, 0)
+    cmd = SW_MINIMIZE if minimized else SW_RESTORE
+    for hwnd in found:
+        user32.ShowWindow(hwnd, cmd)
+    return len(found)
+
+
+def platform_name() -> str:
+    import sys
+
+    return "windows" if sys.platform == "win32" else sys.platform

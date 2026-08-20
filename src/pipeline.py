@@ -13,6 +13,7 @@ from src.logging_audit.service import AuditService
 from src.nlp.engine import NLPEngine, ParsedCommand
 from src.nlp.planner import ActionPlan, CommandPlanner, PlanStep
 from src.vision.engine import VisionEngine
+from src.vision.search_result import FIRST_RESULT_ELEMENT, is_first_result_phrase
 from src.workflows.service import WorkflowService
 
 
@@ -458,8 +459,15 @@ class AutomationPipeline:
             result["automation"] = self.automation.click(x, y)
             return result
         emit = getattr(self, "_status_cb", None) or (lambda _m: None)
-        emit(f"Looking for “{element}” on screen…")
+        first = bool(entities.get("first_result")) or is_first_result_phrase(element)
+        if first:
+            element = FIRST_RESULT_ELEMENT
+            emit("Looking for the first search result…")
+        else:
+            emit(f"Looking for “{element}” on screen…")
+        time.sleep(0.4)
         frame = self.vision.capture_screen()
+        self.automation.capture_region = dict(self.vision.last_region)
         if not self.vision.last_capture_ok:
             raise RuntimeError(
                 f"Screen capture failed: {self.vision.last_capture_error or 'unknown error'}"
@@ -478,8 +486,9 @@ class AutomationPipeline:
         }
         result["boxes"] = detection.boxes
         if not detection.found:
-            self.automation.wait(0.2)
+            self.automation.wait(0.25)
             frame = self.vision.capture_screen()
+            self.automation.capture_region = dict(self.vision.last_region)
             detection = self.vision.locate(element, prefer=prefer, frame=frame)
             result["detection_retry"] = {
                 "found": detection.found,
@@ -487,6 +496,7 @@ class AutomationPipeline:
                 "y": detection.y,
                 "method": detection.method,
                 "confidence": detection.confidence,
+                "label": detection.label,
             }
             result["boxes"] = detection.boxes
             if not detection.found:
@@ -498,8 +508,12 @@ class AutomationPipeline:
                     result["automation"] = self.automation.click(w // 2, h // 2)
                     result["note"] = "Element not found; dry-run used screen center"
                     return result
+                if first:
+                    raise RuntimeError(
+                        "Could not see the first search result. Make sure Google results are "
+                        "visible, then say the blue title, e.g. click Login With Odoo."
+                    )
                 raise RuntimeError(f"Could not find on-screen element: {element}")
-        # Diagnostic capture of matched bounds (verification)
         result["capture_path"] = self.vision.save_capture(
             frame if frame is not None else self.vision.last_frame,
             label=f"click_hit_{element}",
@@ -513,7 +527,25 @@ class AutomationPipeline:
                 }
             ],
         )
+        emit(f"Clicking “{detection.label or element}”")
         result["automation"] = self.automation.click(detection.x, detection.y)
+        if first and not self.automation.dry_run:
+            time.sleep(0.55)
+            after = self.vision.capture_screen()
+            check = self.vision.frame_changed(frame, after, threshold=0.012)
+            result["verification"] = check
+            if not check.get("changed"):
+                emit("First click missed — retrying a bit lower")
+                result["automation"] = self.automation.click(detection.x, detection.y + 14)
+                time.sleep(0.55)
+                after2 = self.vision.capture_screen()
+                check2 = self.vision.frame_changed(frame, after2, threshold=0.012)
+                result["verification_retry"] = check2
+                if not check2.get("changed"):
+                    raise RuntimeError(
+                        "I clicked, but the search page did not open. "
+                        "Say the blue title instead, for example: click Login With Odoo."
+                    )
         return result
 
     def _execute_step(

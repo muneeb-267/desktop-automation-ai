@@ -125,5 +125,10 @@ def test_ambiguous_and_malformed():
     assert weird.intent == "unknown"
     first = engine.parse("open the first result")
     assert first.intent == "click_text"
-    assert first.entities.get("element")
+    assert first.entities.get("element") == "__first_result__"
+
+    spoken = engine.parse("click on the first result")
+    assert spoken.intent == "click_text"
+    assert spoken.entities.get("element") == "__first_result__"
+    assert spoken.entities.get("first_result") is True
 

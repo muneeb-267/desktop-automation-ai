@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.speech.wake import clean_spoken_command
+from src.vision.search_result import FIRST_RESULT_ELEMENT, is_first_result_phrase
 
 # Shared lazy handles so the app doesn't reload models repeatedly
 _SPACY_NLP = None
@@ -326,7 +327,7 @@ class NLPEngine:
         if any(w in lemmas for w in ("wait", "pause", "sleep")):
             return "wait", 0.93
         if re.search(r"\b(first|top|1st)\s+(search\s+)?(result|link|hit)\b", lower):
-            return "click_text", 0.9
+            return "click_text", 0.94
         # Open file / folder / document before generic open_app
         if re.search(
             r"\b(open|launch|show|start)\s+(?:(?:the|my|a|an)\s+)?"
@@ -423,15 +424,20 @@ class NLPEngine:
             entities["query"] = app
         elif intent in ("click_text", "click_button"):
             m = re.search(
-                r"\b(?:click|tap)\s+(?:(?:on|the)\s+)?(?:button\s+)?(.+)$",
+                r"\b(?:click|tap)\s+(?:on\s+)?(?:the\s+)?(?:button\s+)?(.+)$",
                 text,
                 re.I,
             )
-            entities["element"] = (m.group(1) if m else "").strip(" \"'")
-            if not entities["element"] and re.search(
-                r"\b(first|top|1st)\s+(search\s+)?(result|link|hit)\b", text, re.I
-            ):
-                entities["element"] = "1"
+            element = (m.group(1) if m else "").strip(" \"'")
+            element = re.sub(r"^(?:on\s+)?(?:the\s+)?", "", element, flags=re.I).strip()
+            if is_first_result_phrase(text) or is_first_result_phrase(element):
+                entities["element"] = FIRST_RESULT_ELEMENT
+                entities["first_result"] = True
+            else:
+                entities["element"] = element
+            if not entities.get("element") and is_first_result_phrase(text):
+                entities["element"] = FIRST_RESULT_ELEMENT
+                entities["first_result"] = True
             if intent == "click_button":
                 entities["element_type"] = "button"
         elif intent == "fill_form":

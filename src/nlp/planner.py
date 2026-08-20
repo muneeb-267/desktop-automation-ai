@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
 from src.nlp.engine import ParsedCommand
+from src.vision.search_result import FIRST_RESULT_ELEMENT, is_first_result_phrase
 
 SUGGESTIONS = [
     "Open Chrome",
@@ -33,6 +34,8 @@ def _title_for(intent: str, entities: Dict[str, Any]) -> str:
     if intent == "search_web":
         return f'Search Google for “{query}”' if query else "Search the web"
     if intent in ("click_text", "click_button"):
+        if is_first_result_phrase(element) or element == FIRST_RESULT_ELEMENT:
+            return "Click the first search result"
         return f'Click “{element or "target"}” on screen'
     if intent == "type_text":
         shown = text if len(text) < 40 else text[:37] + "…"
@@ -208,13 +211,13 @@ class CommandPlanner:
         lower = raw.lower()
         has_search = any(s.intent == "search_web" for s in planned)
         has_first = any(
-            "first" in str(s.entities.get("element") or "").lower()
-            or "result" in str(s.entities.get("element") or "").lower()
+            is_first_result_phrase(str(s.entities.get("element") or ""))
+            or s.entities.get("first_result")
             for s in planned
         )
         if has_search and re.search(r"\b(first|top|1st)\s+(search\s+)?(result|link|hit)\b", lower) and not has_first:
-            add("inspect_screen", {"element": "1"}, kind="inspect")
-            add("click_text", {"element": "1"}, kind="action")
+            add("inspect_screen", {"element": FIRST_RESULT_ELEMENT, "first_result": True}, kind="inspect")
+            add("click_text", {"element": FIRST_RESULT_ELEMENT, "first_result": True}, kind="action")
             add("verify_screen", {"expect": "page_changed"}, kind="verify")
 
         # Collapse consecutive duplicate waits
