@@ -8,7 +8,12 @@ from typing import Optional
 
 from PyQt5.QtCore import QThread, pyqtSignal
 
-from src.speech.wake import WAKE_GRAMMAR, looks_complete_command
+from src.speech.wake import (
+    WAKE_GRAMMAR,
+    classify_utterance,
+    looks_complete_command,
+    looks_complete_wake,
+)
 
 
 class DaiSetupThread(QThread):
@@ -42,7 +47,7 @@ class DaiSetupThread(QThread):
 
 
 class DaiMicThread(QThread):
-    """Continuously listen and emit finalized phrases (and stable command partials)."""
+    """Continuously listen: wake grammar + free-form STT in parallel."""
 
     heard = pyqtSignal(str)
     partial = pyqtSignal(str)
@@ -108,15 +113,37 @@ class DaiMicThread(QThread):
                 uniq = []
                 for piece in texts:
                     key = piece.lower()
+                    if key in ("[unk]", "unk"):
+                        continue
                     if key not in seen:
                         seen.add(key)
                         uniq.append(piece)
                 return uniq[0] if uniq else ""
 
+            def choose_heard(texts, session):
+                ranked = []
+                for t in texts:
+                    if not t:
+                        continue
+                    kind, cmd = classify_utterance(t, session_active=session)
+                    if kind == "ignore":
+                        continue
+                    extra = len((cmd or t).split())
+                    rank = 4 + extra
+                    if kind in ("close", "minimize", "restore", "repeat"):
+                        rank = 20
+                    elif kind == "wake":
+                        rank = 10 + extra
+                    ranked.append((rank, extra, t))
+                if not ranked:
+                    return ""
+                ranked.sort(reverse=True)
+                return ranked[0][2]
+
             rec_wake, rec_cmd = make_recs()
             self.status.emit("Opening microphone…")
             stream, cap_rate, channels = open_best_input_stream(sd)
-            self.status.emit("Mic on — say DAI")
+            self.status.emit("Mic on — say DAI then a command")
             last_partial = ""
             last_emitted = ""
             stable_text = ""
@@ -124,43 +151,81 @@ class DaiMicThread(QThread):
             last_session = False
             while not self._stop:
                 session = self._session_active
-                if session != last_session:
+                # Do not rebuild recs when the session *starts* — that drops
+                # "DAI open chrome" still sitting in the free-form decoder.
+                if last_session and not session:
                     rec_wake, rec_cmd = make_recs()
-                    last_session = session
                     last_partial = ""
                     stable_n = 0
                     last_emitted = ""
-                rec = rec_cmd if session else rec_wake
+                last_session = session
+
                 raw = read_vosk_chunk(stream, cap_rate, channels, seconds=0.08)
-                if rec.AcceptWaveform(raw):
-                    payload = json.loads(rec.Result() or "{}")
-                    text = pick_text(payload)
-                    if text and text.lower() != last_emitted.lower():
-                        last_emitted = text
-                        self.heard.emit(text)
+                wake_final = rec_wake.AcceptWaveform(raw)
+                cmd_final = rec_cmd.AcceptWaveform(raw)
+
+                wake_text = ""
+                cmd_text = ""
+                if wake_final:
+                    wake_text = pick_text(json.loads(rec_wake.Result() or "{}"))
+                if cmd_final:
+                    cmd_text = pick_text(json.loads(rec_cmd.Result() or "{}"))
+
+                wake_partial = ""
+                cmd_partial = ""
+                if not wake_final:
+                    wake_partial = " ".join(
+                        str(
+                            json.loads(rec_wake.PartialResult() or "{}").get("partial") or ""
+                        ).split()
+                    )
+                if not cmd_final:
+                    cmd_partial = " ".join(
+                        str(
+                            json.loads(rec_cmd.PartialResult() or "{}").get("partial") or ""
+                        ).split()
+                    )
+
+                live = cmd_partial or wake_partial
+                if live and live != last_partial:
+                    last_partial = live
+                    self.partial.emit(live)
+
+                candidates = []
+                if cmd_text:
+                    candidates.append(cmd_text)
+                if wake_text:
+                    candidates.append(wake_text)
+                chosen = choose_heard(candidates, session)
+
+                if chosen and chosen.lower() != last_emitted.lower():
+                    last_emitted = chosen
+                    self.heard.emit(chosen)
                     last_partial = ""
                     stable_n = 0
-                else:
-                    partial = json.loads(rec.PartialResult() or "{}").get("partial") or ""
-                    partial = " ".join(str(partial).split())
-                    if partial and partial != last_partial:
-                        last_partial = partial
-                        self.partial.emit(partial)
-                    if session and partial and looks_complete_command(partial):
-                        if partial == stable_text:
-                            stable_n += 1
-                        else:
-                            stable_text = partial
-                            stable_n = 1
-                        # ~160ms of the same complete phrase → run without waiting for silence
-                        if stable_n >= 2 and partial.lower() != last_emitted.lower():
-                            last_emitted = partial
-                            self.heard.emit(partial)
-                            rec_wake, rec_cmd = make_recs()
-                            last_session = session
-                            stable_n = 0
+                    rec_wake, rec_cmd = make_recs()
+                    continue
+
+                partial = cmd_partial or wake_partial
+                should_fire = False
+                if session and partial and looks_complete_command(partial):
+                    should_fire = True
+                elif (not session) and partial and looks_complete_wake(partial):
+                    should_fire = True
+                if should_fire and partial:
+                    if partial == stable_text:
+                        stable_n += 1
                     else:
+                        stable_text = partial
+                        stable_n = 1
+                    if stable_n >= 2 and partial.lower() != last_emitted.lower():
+                        last_emitted = partial
+                        self.heard.emit(partial)
+                        rec_wake, rec_cmd = make_recs()
                         stable_n = 0
+                        last_partial = ""
+                else:
+                    stable_n = 0
         except Exception as exc:
             self.failed.emit(friendly_mic_error(exc))
         finally:

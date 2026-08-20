@@ -8,6 +8,8 @@ def test_wake_variants():
     assert not is_wake_phrase("open chrome")
     assert not is_wake_phrase("have a nice day")
     assert is_wake_phrase("they")
+    assert is_wake_phrase("day")
+    assert is_wake_phrase("DAI open chrome")
     assert not is_wake_phrase("copy file they sent to desktop")
 
 
@@ -34,8 +36,9 @@ def test_classify_session():
     kind, cmd = classify_utterance("click submit", session_active=False)
     assert kind == "ignore"
 
-    kind, cmd = classify_utterance("DAI close now", session_active=True)
-    assert kind == "close"
+    kind, cmd = classify_utterance("DAI open chrome", session_active=False)
+    assert kind == "wake"
+    assert "open" in cmd and "chrome" in cmd
 
 
 def test_minimize_and_repeat():
@@ -61,3 +64,12 @@ def test_complete_command():
     assert looks_complete_command("open notepad")
     assert looks_complete_command("minimize the screen")
     assert not looks_complete_command("click")
+
+    from src.speech.wake import looks_complete_wake
+
+    assert looks_complete_wake("dai")
+    assert looks_complete_wake("DAI")
+    assert looks_complete_wake("day")
+    assert looks_complete_wake("dai open chrome")
+    assert not looks_complete_wake("open chrome")
+    assert not looks_complete_wake("have a nice day")

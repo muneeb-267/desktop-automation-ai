@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidg
 class DaiOverlay(QWidget):
     close_requested = pyqtSignal()
     retry_requested = pyqtSignal()
+    tap_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -19,6 +20,7 @@ class DaiOverlay(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setFixedSize(300, 158)
         self._drag: QPoint | None = None
+        self._press_pos: QPoint | None = None
         self._hidden_for_action = False
 
         root = QVBoxLayout(self)
@@ -44,7 +46,7 @@ class DaiOverlay(QWidget):
         self.line.setObjectName("daiLine")
         self.line.setWordWrap(True)
 
-        self.hint = QLabel("Say “DAI” to begin — STT, plan, then execute")
+        self.hint = QLabel("Say “DAI open chrome” — or click here to listen")
         self.hint.setObjectName("daiHint")
         self.hint.setWordWrap(True)
 
@@ -105,6 +107,7 @@ class DaiOverlay(QWidget):
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.LeftButton:
             self._drag = event.globalPos() - self.frameGeometry().topLeft()
+            self._press_pos = event.globalPos()
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
@@ -113,5 +116,12 @@ class DaiOverlay(QWidget):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        moved = False
+        if hasattr(self, "_press_pos") and self._press_pos is not None:
+            delta = event.globalPos() - self._press_pos
+            moved = abs(delta.x()) > 8 or abs(delta.y()) > 8
         self._drag = None
+        self._press_pos = None
+        if event.button() == Qt.LeftButton and not moved:
+            self.tap_requested.emit()
         super().mouseReleaseEvent(event)

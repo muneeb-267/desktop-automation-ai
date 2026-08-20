@@ -794,6 +794,7 @@ class MainWindow(QMainWindow):
             self._dai_overlay = DaiOverlay()
             self._dai_overlay.close_requested.connect(self._hide_dai_overlay)
             self._dai_overlay.retry_requested.connect(self._start_dai_listener)
+            self._dai_overlay.tap_requested.connect(self._dai_tap_wake)
             self._dai_overlay.place_corner()
         self._dai_overlay.show()
         self._dai_overlay.set_mode("sleep", "Preparing offline speech…")
@@ -831,8 +832,8 @@ class MainWindow(QMainWindow):
         if self._dai_overlay and text:
             if self._dai_active:
                 self._dai_overlay.set_mode("active", f"STT: {text}")
-            elif classify_utterance(text, session_active=False)[0] == "wake":
-                self._dai_overlay.set_mode("sleep", "Hearing DAI…")
+            else:
+                self._dai_overlay.set_mode("sleep", f"Hearing: {text}")
 
     def _on_dai_heard(self, text: str) -> None:
         now = time.monotonic()
@@ -889,6 +890,17 @@ class MainWindow(QMainWindow):
             return
         if kind == "command" and command:
             self._run_command(command, source="voice", live_desktop=True)
+
+    def _dai_tap_wake(self) -> None:
+        """Click the DAI pill if the wake word is not heard."""
+        self._dai_active = True
+        if self._dai_thread is not None:
+            self._dai_thread.set_session_active(True)
+        if self._dai_overlay:
+            self._dai_overlay.show()
+            self._dai_overlay.set_mode("active", "Listening — say a command")
+        self.page_voice.set_status_message("DAI listening (tapped)")
+        self.toast.show("DAI is listening — speak a command", "info")
 
     def _hide_dai_overlay(self) -> None:
         if self._dai_overlay:

@@ -8,8 +8,8 @@ from typing import Literal, Tuple
 
 Kind = Literal["ignore", "wake", "command", "close", "minimize", "restore", "repeat"]
 
-# "DAI" is often heard as die / dye / they. Do not treat bare "day" as a wake word.
-# Bare "they" is only a wake word as the whole utterance (Vosk grammar), not mid-sentence.
+# "DAI" is often heard as die / dye / they / day / guy.
+# Bare "day"/"guy" count as wake only as the whole utterance, not mid-sentence.
 _WAKE_CORE = r"(?:d\.?\s*a\.?\s*i\.?|dai|die|dye)"
 _WAKE = rf"(?:hey\s+|ok\s+|okay\s+|yo\s+)?{_WAKE_CORE}"
 _WAKE_CLOSE = (
@@ -23,12 +23,16 @@ WAKE_GRAMMAR = json.dumps(
         "hey dai",
         "ok dai",
         "okay dai",
+        "yo dai",
         "die",
         "dye",
         "they",
+        "day",
+        "guy",
         "dai close now",
         "die close now",
         "they close now",
+        "hey dai close now",
         "[unk]",
     ]
 )
@@ -75,9 +79,41 @@ def is_wake_phrase(text: str) -> bool:
     t = normalize(text)
     if not t:
         return False
-    if t in ("they", "hey they", "ok they", "okay they", "yo they"):
+    # Whole-utterance aliases Vosk often produces instead of "DAI"
+    if t in (
+        "they",
+        "day",
+        "guy",
+        "tie",
+        "thai",
+        "tai",
+        "diet",
+        "hey they",
+        "ok they",
+        "okay they",
+        "yo they",
+        "hey day",
+        "hey die",
+        "hey guy",
+    ):
         return True
     return bool(re.match(rf"^{_WAKE}\b", t))
+
+
+def looks_complete_wake(text: str) -> bool:
+    """Idle partial that is already a wake word (optionally plus a full command)."""
+    t = normalize(text)
+    if not t:
+        return False
+    if is_close_phrase(t, session_active=False):
+        return True
+    if is_wake_phrase(t):
+        leftover = strip_wake(t)
+        # Alias-only (day/guy) does not strip, leftover == t
+        if not leftover or leftover == t:
+            return True
+        return looks_complete_command(leftover)
+    return False
 
 
 def is_minimize_phrase(text: str) -> bool:
