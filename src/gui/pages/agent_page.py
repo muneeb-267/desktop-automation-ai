@@ -31,7 +31,7 @@ class AgentPage(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self._plan: Dict[str, Any] = {}
+        self._plan_data: Dict[str, Any] = {}
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -63,7 +63,7 @@ class AgentPage(QWidget):
         self.command = QLineEdit()
         self.command.setPlaceholderText('Open Chrome, search for today\'s weather, then open the first result')
         self.command.setMinimumHeight(40)
-        self.command.returnPressed.connect(self._plan)
+        self.command.returnPressed.connect(self._emit_plan)
         row = QHBoxLayout()
         speak = QPushButton("🎙 Speak")
         speak.setObjectName("btnMicBig")
@@ -71,11 +71,11 @@ class AgentPage(QWidget):
         plan_btn = QPushButton("Explain plan")
         plan_btn.setObjectName("btnSecondary")
         plan_btn.setMinimumHeight(40)
-        plan_btn.clicked.connect(self._plan)
+        plan_btn.clicked.connect(self._emit_plan)
         run_btn = QPushButton("Execute")
         run_btn.setObjectName("btnPrimary")
         run_btn.setMinimumHeight(40)
-        run_btn.clicked.connect(self._run)
+        run_btn.clicked.connect(self._emit_run)
         stop = QPushButton("STOP AUTOMATION")
         stop.setObjectName("btnDanger")
         stop.setMinimumHeight(40)
@@ -158,12 +158,12 @@ class AgentPage(QWidget):
         self.suggestion_requested.emit(text)
         self.plan_requested.emit(text)
 
-    def _plan(self) -> None:
+    def _emit_plan(self) -> None:
         text = self.command.text().strip()
         if text:
             self.plan_requested.emit(text)
 
-    def _run(self) -> None:
+    def _emit_run(self) -> None:
         text = self.command.text().strip()
         if text:
             self.execute_requested.emit(text)
@@ -175,7 +175,7 @@ class AgentPage(QWidget):
         self.status.setText(text)
 
     def show_plan(self, plan: Dict[str, Any]) -> None:
-        self._plan = plan or {}
+        self._plan_data = plan or {}
         self.plan_list.clear()
         conf = int(float(plan.get("confidence") or 0) * 100)
         mode = plan.get("mode") or "local"
