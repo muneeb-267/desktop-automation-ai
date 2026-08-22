@@ -1,5 +1,6 @@
 from src.vision.search_result import (
     FIRST_RESULT_ELEMENT,
+    is_bare_click_phrase,
     is_first_result_phrase,
     list_search_results,
     parse_result_index,
@@ -15,6 +16,15 @@ def test_first_result_phrases():
     assert is_first_result_phrase("first result")
     assert is_first_result_phrase(FIRST_RESULT_ELEMENT)
     assert not is_first_result_phrase("click login")
+
+
+def test_bare_click_phrases():
+    assert is_bare_click_phrase("click")
+    assert is_bare_click_phrase("please click")
+    assert is_bare_click_phrase("click it")
+    assert is_bare_click_phrase("tap that")
+    assert not is_bare_click_phrase("click login")
+    assert not is_bare_click_phrase("click the first result")
 
 
 def test_short_ocr_words_do_not_match_long_query():

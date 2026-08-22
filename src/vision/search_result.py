@@ -94,6 +94,26 @@ def is_ranked_result_phrase(text: str) -> bool:
     return parse_result_index(text) is not None
 
 
+_BARE_CLICK = re.compile(
+    r"^(?:please\s+|just\s+)?(?:click|tap)(?:\s+(?:on\s+)?(?:it|that|this|here))?[.!?]*$",
+    re.I,
+)
+
+
+def is_bare_click_phrase(text: str) -> bool:
+    """True for leftover 'click' / 'click it' with no button name."""
+    t = " ".join((text or "").lower().split())
+    return bool(_BARE_CLICK.match(t))
+
+
+def first_result_entities() -> Dict[str, Any]:
+    return {
+        "element": FIRST_RESULT_ELEMENT,
+        "first_result": True,
+        "result_index": 1,
+    }
+
+
 def text_matches_query(ocr_text: str, query: str) -> bool:
     """True when an OCR fragment is a real match, not a short substring like 'the'."""
     from src.vision.ocr_text import distinctive_tokens, normalize_ocr_query

@@ -112,12 +112,21 @@ class AutomationEngine:
         return entry
 
     def click(
-        self, x: Optional[int] = None, y: Optional[int] = None, button: str = "left", clicks: int = 1
+        self,
+        x: Optional[int] = None,
+        y: Optional[int] = None,
+        button: str = "left",
+        clicks: int = 1,
+        *,
+        label: str = "",
     ) -> Dict[str, Any]:
         mapped_x, mapped_y = x, y
         if x is not None and y is not None and self._pyautogui is not None:
             mapped_x, mapped_y = self.map_capture_point(int(x), int(y))
-        entry = self._record("click", x=mapped_x, y=mapped_y, button=button, clicks=clicks)
+        rec: Dict[str, Any] = {"x": mapped_x, "y": mapped_y, "button": button, "clicks": clicks}
+        if label:
+            rec["label"] = str(label)
+        entry = self._record("click", **rec)
         if not self.dry_run and self._pyautogui:
             if mapped_x is not None and mapped_y is not None:
                 self._pyautogui.click(mapped_x, mapped_y, clicks=clicks, button=button, interval=0.08)

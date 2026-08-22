@@ -37,3 +37,13 @@ def test_planner_wait_after_open():
     plan = CommandPlanner().plan(parsed)
     kinds = [s.kind for s in plan.steps]
     assert "wait" in kinds or any(s.intent == "wait" for s in plan.steps)
+
+
+def test_planner_bare_click_after_search_is_first_result():
+    nlp = NLPEngine()
+    parsed = nlp.parse("Open Chrome and search ucp student portal and click")
+    plan = CommandPlanner().plan(parsed, parsed.raw_text)
+    clicks = [s for s in plan.steps if s.intent == "click_text"]
+    assert clicks
+    assert clicks[-1].entities.get("first_result") is True
+    assert clicks[-1].entities.get("result_index") == 1

@@ -6,8 +6,8 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
-from src.nlp.engine import ParsedCommand
-from src.vision.search_result import FIRST_RESULT_ELEMENT, is_first_result_phrase
+from src.nlp.engine import ParsedCommand, _fill_empty_clicks_after_search
+from src.vision.search_result import FIRST_RESULT_ELEMENT, first_result_entities, is_first_result_phrase
 
 SUGGESTIONS = [
     "Open Chrome",
@@ -172,7 +172,9 @@ class CommandPlanner:
                 "confidence": parsed.confidence,
             }
         ]
-        source = [s for s in source if s.get("intent") and s.get("intent") != "unknown"]
+        source = _fill_empty_clicks_after_search(
+            [s for s in source if s.get("intent") and s.get("intent") != "unknown"]
+        )
         planned: List[PlanStep] = []
         idx = 0
 
@@ -195,6 +197,12 @@ class CommandPlanner:
             intent = str(step.get("intent") or "")
             entities = dict(step.get("entities") or {})
             if intent in ("click_text", "click_button"):
+                el = str(entities.get("element") or "").strip()
+                if not el and not entities.get("first_result"):
+                    if any(s.get("intent") == "search_web" for s in source):
+                        entities.update(first_result_entities())
+                    else:
+                        continue
                 add("inspect_screen", {"element": entities.get("element", "")}, kind="inspect")
                 add(intent, entities, kind="action")
                 add("verify_screen", {"expect": "ui_changed"}, kind="verify")
@@ -210,17 +218,21 @@ class CommandPlanner:
 
         lower = raw.lower()
         has_search = any(s.intent == "search_web" for s in planned)
+        has_click = any(s.intent in ("click_text", "click_button") for s in planned)
         has_first = any(
             is_first_result_phrase(str(s.entities.get("element") or ""))
             or s.entities.get("first_result")
             for s in planned
         )
-        if has_search and re.search(
-            r"\b(first|second|third|fourth|fifth|top|1st|2nd|3rd)\s+(search\s+)?(result|link|hit)\b",
-            lower,
-        ) and not has_first:
-            add("inspect_screen", {"element": FIRST_RESULT_ELEMENT, "first_result": True}, kind="inspect")
-            add("click_text", {"element": FIRST_RESULT_ELEMENT, "first_result": True}, kind="action")
+        if has_search and not has_first and (
+            re.search(
+                r"\b(first|second|third|fourth|fifth|top|1st|2nd|3rd)\s+(search\s+)?(result|link|hit)\b",
+                lower,
+            )
+            or (not has_click and re.search(r"\b(click|tap)\b", lower))
+        ):
+            add("inspect_screen", first_result_entities(), kind="inspect")
+            add("click_text", first_result_entities(), kind="action")
             add("verify_screen", {"expect": "page_changed"}, kind="verify")
 
         # Collapse consecutive duplicate waits

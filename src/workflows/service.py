@@ -12,6 +12,7 @@ from src.db.repositories import (
     TaskRepository,
     WorkflowRepository,
 )
+from src.vision.search_result import FIRST_RESULT_ELEMENT, first_result_entities
 
 
 class WorkflowService:
@@ -130,13 +131,20 @@ class WorkflowService:
                     }
                 )
             elif action == "click":
+                label = str(
+                    item.get("label") or item.get("element") or ""
+                ).strip()
+                params: Dict[str, Any] = {"x": item.get("x"), "y": item.get("y")}
+                if label:
+                    params["label"] = label
+                    params["element"] = label
                 mapped.append(
                     {
                         "intent": "click_text",
                         "target_app": "",
-                        "target_element": "",
+                        "target_element": label,
                         "input_value": "",
-                        "params": {"x": item.get("x"), "y": item.get("y")},
+                        "params": params,
                     }
                 )
             elif action == "press":
@@ -234,19 +242,65 @@ class WorkflowService:
                         },
                     }
                 )
-        return mapped
+        return WorkflowService.fill_empty_clicks_after_search(mapped)
+
+    @staticmethod
+    def _task_params(task: Dict[str, Any]) -> Dict[str, Any]:
+        params = task.get("params")
+        if isinstance(params, dict) and params:
+            return dict(params)
+        raw = task.get("params_json") or "{}"
+        if isinstance(raw, dict):
+            return dict(raw)
+        if isinstance(raw, str):
+            try:
+                decoded = json.loads(raw)
+            except json.JSONDecodeError:
+                return {}
+            return dict(decoded) if isinstance(decoded, dict) else {}
+        return {}
+
+    @staticmethod
+    def fill_empty_clicks_after_search(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """A click with no name after search_web means the first Google result."""
+        out: List[Dict[str, Any]] = []
+        after_search = False
+        for task in tasks:
+            item = dict(task)
+            intent = str(item.get("intent") or "")
+            if intent == "search_web":
+                after_search = True
+                out.append(item)
+                continue
+            if intent in ("click_text", "click_button"):
+                params = WorkflowService._task_params(item)
+                target = str(item.get("target_element") or "").strip()
+                if not target:
+                    target = str(params.get("label") or params.get("element") or "").strip()
+                if not target:
+                    if after_search:
+                        item["target_element"] = FIRST_RESULT_ELEMENT
+                        merged = dict(params)
+                        merged.update(first_result_entities())
+                        item["params"] = merged
+                        item["params_json"] = json.dumps(merged)
+                        after_search = False
+                    else:
+                        # Drop nameless clicks that would search for "".
+                        continue
+                else:
+                    item["target_element"] = target
+                    after_search = False
+                out.append(item)
+                continue
+            if intent not in ("wait", "inspect_screen", "verify_screen"):
+                after_search = False
+            out.append(item)
+        return out
 
     @staticmethod
     def task_to_step(task: Dict[str, Any]) -> Dict[str, Any]:
-        params = task.get("params_json") or "{}"
-        if isinstance(params, str):
-            try:
-                params = json.loads(params)
-            except json.JSONDecodeError:
-                params = {}
-        # Also accept already-decoded params
-        if not params and isinstance(task.get("params"), dict):
-            params = task["params"]
+        params = WorkflowService._task_params(task)
         intent = task.get("intent", "wait")
         entities: Dict[str, Any] = dict(params) if isinstance(params, dict) else {}
         if intent == "open_app":
@@ -258,7 +312,18 @@ class WorkflowService:
             if task.get("input_value") and not entities.get("path"):
                 entities.setdefault("path", "")
         elif intent in ("click_text", "click_button"):
-            entities["element"] = task.get("target_element", "") or entities.get("element", "")
+            entities["element"] = (
+                task.get("target_element", "")
+                or entities.get("element", "")
+                or entities.get("label", "")
+            )
+            if not str(entities.get("element") or "").strip() and (
+                entities.get("first_result") or entities.get("result_index")
+            ):
+                entities.update(first_result_entities())
+                if entities.get("result_index") and int(entities.get("result_index") or 1) != 1:
+                    entities["element"] = f"result {int(entities['result_index'])}"
+                    entities["first_result"] = False
         elif intent == "fill_form":
             entities["field"] = task.get("target_element", "") or entities.get("field", "")
             entities["text"] = task.get("input_value", "") or entities.get("text", "")

@@ -96,3 +96,21 @@ def test_preview_plan_and_stop_flag(tmp_path: Path):
     assert pipeline._stop_requested is True
     db.close()
     reset_database_singleton()
+
+
+def test_empty_click_asks_for_button_name(tmp_path: Path):
+    reset_database_singleton()
+    cfg = load_config()
+    db = Database(tmp_path / "empty_click.db")
+    db.initialize_schema()
+    pipeline = AutomationPipeline(cfg, db)
+    pipeline.automation.set_dry_run(True)
+    try:
+        pipeline._click_element("", {})
+        raise AssertionError("empty click should fail")
+    except RuntimeError as exc:
+        message = str(exc).lower()
+        assert "no target" in message
+        assert "tesseract" not in message
+    db.close()
+    reset_database_singleton()

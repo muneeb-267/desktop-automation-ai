@@ -152,3 +152,18 @@ def test_ambiguous_and_malformed():
     click_help = engine.parse("help me click the email field")
     assert click_help.intent == "click_text"
 
+
+def test_search_and_bare_click_is_first_result():
+    engine = NLPEngine()
+    parsed = engine.parse("open chrome and search ucp student portal and click")
+    clicks = [s for s in (parsed.steps or []) if s.get("intent") == "click_text"]
+    assert clicks
+    last = clicks[-1]
+    assert last["entities"].get("first_result") is True
+    assert last["entities"].get("result_index") == 1
+    assert last["entities"].get("element") == "__first_result__"
+
+    spoken = engine.parse("search weather then click")
+    click = [s for s in spoken.steps if s.get("intent") == "click_text"][-1]
+    assert click["entities"].get("first_result") is True
+

@@ -1223,7 +1223,11 @@ class MainWindow(QMainWindow):
             h = int(cand.get("height") or 0)
             self._highlight.show_box(x, y, w or 40, h or 20, ms=400)
             self.pipeline.automation.capture_region = dict(getattr(self.pipeline.vision, "last_region", {}) or {})
-            self.pipeline.automation.click(x + max(w, 8) // 2, y + max(h, 8) // 2)
+            self.pipeline.automation.click(
+                x + max(w, 8) // 2,
+                y + max(h, 8) // 2,
+                label=str(cand.get("text") or ""),
+            )
             self.tasks.record(f"Clicked {cand.get('text') or 'element'}", ok=True)
             self.tasks.waiting_for_next()
         except Exception as exc:

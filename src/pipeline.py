@@ -352,10 +352,11 @@ class AutomationPipeline:
         captures: List[str] = []
         error: Optional[str] = None
         try:
+            tasks = WorkflowService.fill_empty_clicks_after_search(list(wf.get("tasks") or []))
             self._ensure_live_automation(
-                [str((WorkflowService.task_to_step(t) or {}).get("intent") or "") for t in wf.get("tasks", [])]
+                [str((WorkflowService.task_to_step(t) or {}).get("intent") or "") for t in tasks]
             )
-            for task in wf.get("tasks", []):
+            for task in tasks:
                 if self._stop_requested:
                     error = "Stopped by user"
                     break
@@ -523,7 +524,7 @@ class AutomationPipeline:
         emit(f"Clicking result {index}: {detection.label}…")
         agent_log(f"Candidate: {detection.label}")
         agent_log(f"Confidence: {detection.confidence:.2f}")
-        clicked = self.automation.click(detection.x, detection.y)
+        clicked = self.automation.click(detection.x, detection.y, label=detection.label or f"result {index}")
         time.sleep(0.4)
         after = self.vision.capture_screen()
         check = self.vision.frame_changed(frame, after, threshold=0.01)
@@ -539,15 +540,41 @@ class AutomationPipeline:
             )
         return result
 
+    def _history_has_recent_search(self) -> bool:
+        for item in reversed(self.automation.history[-16:]):
+            action = item.get("action")
+            if action in ("search_google", "address_bar_search"):
+                return True
+            if action in ("wait", "move_to", "open_app", "open_url"):
+                continue
+            return False
+        return False
+
     def _click_element(self, element: str, entities: Dict[str, Any]) -> Dict[str, Any]:
         result: Dict[str, Any] = {"intent": "click_button", "entities": entities}
-        if entities.get("x") is not None and entities.get("y") is not None:
-            x, y = int(entities["x"]), int(entities["y"])
-            result["automation"] = self.automation.click(x, y)
-            return result
-        emit = getattr(self, "_status_cb", None) or (lambda _m: None)
+        element = (element or "").strip()
         result_index = int(entities.get("result_index") or 0) or parse_result_index(element or "")
         first = bool(entities.get("first_result")) or is_first_result_phrase(element) or result_index == 1
+        if not element and not first and not result_index:
+            if self._history_has_recent_search():
+                first = True
+                result_index = 1
+                element = FIRST_RESULT_ELEMENT
+            elif entities.get("x") is not None and entities.get("y") is not None:
+                x, y = int(entities["x"]), int(entities["y"])
+                result["automation"] = self.automation.click(x, y, label=str(entities.get("label") or ""))
+                return result
+            else:
+                raise RuntimeError(
+                    "Click has no target. Say the button or link name, for example “click login”."
+                )
+        if entities.get("x") is not None and entities.get("y") is not None and not first and not result_index:
+            x, y = int(entities["x"]), int(entities["y"])
+            result["automation"] = self.automation.click(
+                x, y, label=element or str(entities.get("label") or "")
+            )
+            return result
+        emit = getattr(self, "_status_cb", None) or (lambda _m: None)
         if result_index:
             emit(f"Looking at the current screen for result {result_index}…")
         elif first:
@@ -607,7 +634,7 @@ class AutomationPipeline:
                 self.automation.capture_region = dict(self.vision.last_region)
                 cx, cy = el.center
                 self.automation.move_to(cx, cy)
-                clicked = self.automation.click(cx, cy)
+                clicked = self.automation.click(cx, cy, label=el.text or element)
                 after = None
                 time.sleep(0.35)
                 after = self.vision.capture_screen()
@@ -679,7 +706,7 @@ class AutomationPipeline:
                 )
                 if self.automation.dry_run:
                     h, w = frame.shape[:2]
-                    result["automation"] = self.automation.click(w // 2, h // 2)
+                    result["automation"] = self.automation.click(w // 2, h // 2, label=element)
                     result["note"] = "Element not found; dry-run used screen center"
                     return result
                 if first:
@@ -716,6 +743,10 @@ class AutomationPipeline:
                     result["candidates"] = visible
                     result["capture_path"] = result.get("capture_path") or ""
                     return result
+                if not (element or "").strip():
+                    raise RuntimeError(
+                        "Click has no target. Say the button or link name, for example “click login”."
+                    )
                 raise RuntimeError(
                     f"Could not find on-screen element: {element}. "
                     "If the button is visible, install Tesseract OCR and try again."
@@ -734,7 +765,9 @@ class AutomationPipeline:
             ],
         )
         emit(f"Clicking “{detection.label or element}”")
-        result["automation"] = self.automation.click(detection.x, detection.y)
+        result["automation"] = self.automation.click(
+            detection.x, detection.y, label=detection.label or element
+        )
         if first and not self.automation.dry_run:
             time.sleep(0.55)
             after = self.vision.capture_screen()
@@ -742,7 +775,9 @@ class AutomationPipeline:
             result["verification"] = check
             if not check.get("changed"):
                 emit("First click missed — retrying a bit lower")
-                result["automation"] = self.automation.click(detection.x, detection.y + 14)
+                result["automation"] = self.automation.click(
+                    detection.x, detection.y + 14, label=detection.label or element
+                )
                 time.sleep(0.55)
                 after2 = self.vision.capture_screen()
                 check2 = self.vision.frame_changed(frame, after2, threshold=0.012)

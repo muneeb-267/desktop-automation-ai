@@ -353,6 +353,8 @@ class VisionEngine:
         frame: Optional[np.ndarray] = None,
     ) -> DetectionResult:
         img = frame if frame is not None else self.capture_screen()
+        if not (element or "").strip():
+            return DetectionResult(found=False, label="", method="ocr")
         idx = parse_result_index(element)
         if element == FIRST_RESULT_ELEMENT or is_ranked_result_phrase(element) or idx:
             return self.find_ranked_search_result(idx or 1, img)

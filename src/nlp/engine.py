@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from src.speech.wake import clean_spoken_command
 from src.vision.search_result import (
     FIRST_RESULT_ELEMENT,
+    first_result_entities,
+    is_bare_click_phrase,
     is_first_result_phrase,
     is_ranked_result_phrase,
     parse_result_index,
@@ -56,6 +58,35 @@ _APP_ALIASES = {
     "gmail": "gmail",
     "youtube": "youtube",
 }
+
+
+def _fill_empty_clicks_after_search(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Bare 'click' after a Google search means the first result."""
+    out: List[Dict[str, Any]] = []
+    seen_search = False
+    for step in steps:
+        intent = str(step.get("intent") or "")
+        entities = dict(step.get("entities") or {})
+        if intent == "search_web":
+            seen_search = True
+        if intent in ("click_text", "click_button"):
+            element = str(entities.get("element") or "").strip()
+            if not element:
+                if seen_search and not entities.get("first_result"):
+                    entities.update(first_result_entities())
+                    step = {
+                        **step,
+                        "intent": "click_text",
+                        "entities": entities,
+                        "confidence": max(float(step.get("confidence") or 0), 0.9),
+                    }
+                    seen_search = False
+                else:
+                    continue
+            else:
+                seen_search = False
+        out.append(step)
+    return out
 
 
 class NLPEngine:
@@ -204,14 +235,23 @@ class NLPEngine:
                 if not part:
                     continue
                 parsed = self._parse_single(part)
+                intent = parsed.intent
+                entities = dict(parsed.entities or {})
+                confidence = parsed.confidence
+                # "search X and click" — leftover "click" is unknown until we see search_web
+                if intent == "unknown" and is_bare_click_phrase(part):
+                    intent = "click_text"
+                    entities = {"element": ""}
+                    confidence = 0.72
                 steps.append(
                     {
-                        "intent": parsed.intent,
-                        "entities": parsed.entities,
-                        "confidence": parsed.confidence,
+                        "intent": intent,
+                        "entities": entities,
+                        "confidence": confidence,
                     }
                 )
-                confidences.append(parsed.confidence)
+                confidences.append(confidence)
+            steps = _fill_empty_clicks_after_search(steps)
             primary = steps[0] if steps else {"intent": "unknown", "entities": {}, "confidence": 0.0}
             analysis = self.analyze(raw, enrich=False)
             return ParsedCommand(
