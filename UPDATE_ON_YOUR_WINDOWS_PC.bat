@@ -1,129 +1,92 @@
 @echo off
-REM ============================================================
-REM  Automate AI — UPDATE files on YOUR Windows laptop
-REM  Run this inside your existing project folder.
-REM ============================================================
+REM Keep this window open even if something fails. Double-click must show text.
+if /I not "%~1"=="KEEPOPEN" (
+  start "Automate AI Update" cmd /k "%~f0" KEEPOPEN
+  exit /b
+)
+
 setlocal EnableExtensions
 cd /d "%~dp0"
-title Automate AI - Updating your laptop copy...
+title Automate AI - Updating your laptop copy
 color 0B
 
 echo.
 echo  ========================================================
-echo   Updating Automate AI on this PC with the latest code
-echo   (open files/folders from speech + fixed UI)
+echo   Automate AI updater
+echo   If you can read this, the updater IS running.
+echo   Folder:
+echo   %CD%
 echo  ========================================================
 echo.
 
-where git >nul 2>&1
-if not errorlevel 1 (
-  if exist ".git" (
-    echo [1/4] Git repo found — pulling latest branch...
-    git fetch origin
-    git checkout cursor/desktop-automation-ai-a8ac 2>nul
-    git pull origin cursor/desktop-automation-ai-a8ac
-    if errorlevel 1 (
-      echo Git pull had an issue. Trying ZIP download fallback...
-      goto ZIP_UPDATE
-    )
-    goto AFTER_CODE
-  )
-)
-
-:ZIP_UPDATE
-echo [1/4] Downloading latest project ZIP from GitHub...
-set "ZIP=%TEMP%\automate-ai-update.zip"
-set "TMPDIR=%TEMP%\automate-ai-update-src"
-set "URL=https://github.com/muneeb-267/desktop-automation-ai/archive/refs/heads/cursor/desktop-automation-ai-a8ac.zip"
-
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "try {" ^
-  "  Invoke-WebRequest -Uri '%URL%' -OutFile '%ZIP%' -UseBasicParsing;" ^
-  "  if (Test-Path '%TMPDIR%') { Remove-Item -Recurse -Force '%TMPDIR%' };" ^
-  "  Expand-Archive -Path '%ZIP%' -DestinationPath '%TMPDIR%' -Force;" ^
-  "  $src = Get-ChildItem '%TMPDIR%' -Directory | Select-Object -First 1;" ^
-  "  if (-not $src) { throw 'ZIP extract failed' };" ^
-  "  Copy-Item -Path (Join-Path $src.FullName '*') -Destination '%CD%' -Recurse -Force;" ^
-  "  Write-Host 'Files updated from ZIP.';" ^
-  "} catch {" ^
-  "  Write-Host $_.Exception.Message;" ^
-  "  exit 1" ^
-  "}"
-if errorlevel 1 (
+if not exist "%~dp0main.py" (
+  echo ERROR: This file is not inside the Automate AI project folder.
+  echo Put UPDATE_ON_YOUR_WINDOWS_PC.bat next to main.py, then double-click it.
   echo.
-  echo ERROR: Could not download the ZIP. This is normal if the GitHub repo is PRIVATE.
-  echo GitHub returns 404 to anyone who is not logged in.
-  echo.
-  echo Do this instead (while logged into GitHub in Chrome):
-  echo   1. Open: https://github.com/muneeb-267/desktop-automation-ai
-  echo   2. Click the branch dropdown and pick: cursor/desktop-automation-ai-a8ac
-  echo   3. Click the green Code button - Download ZIP
-  echo   4. Extract the ZIP to a new folder
-  echo   5. Double-click FIX_INSTALL.bat
-  echo.
-  echo Or in GitHub Desktop: File - Clone repository - that URL, then
-  echo checkout branch cursor/desktop-automation-ai-a8ac
-  echo.
-  echo Optional: make the repo Public so this updater works without login
-  echo   GitHub - Settings - Danger Zone - Change repository visibility
-  echo.
-  start https://github.com/muneeb-267/desktop-automation-ai/tree/cursor/desktop-automation-ai-a8ac
   pause
   exit /b 1
 )
 
-:AFTER_CODE
-echo [2/4] Ensuring virtual environment...
+echo [1/3] Getting the latest code...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\update_project.ps1"
+if errorlevel 1 (
+  echo.
+  echo The automatic update did not finish.
+  echo Download a ZIP while logged into GitHub, then run this file again.
+  echo Branch page:
+  echo   https://github.com/muneeb-267/desktop-automation-ai/tree/cursor/desktop-automation-ai-a8ac
+  echo.
+  pause
+  exit /b 1
+)
+
+echo.
+echo [2/3] Refreshing Python packages in .venv ...
 if not exist ".venv\Scripts\python.exe" (
   where python >nul 2>&1
   if errorlevel 1 (
-    echo Python not found. Install from https://www.python.org/downloads/ ^(tick Add to PATH^)
+    echo Python not found. Install from https://www.python.org/downloads/
+    echo Tick "Add python.exe to PATH", then run FIX_INSTALL.bat.
     pause
     exit /b 1
   )
   python -m venv .venv
 )
-call .venv\Scripts\activate.bat
-
-echo [3/4] Installing / refreshing packages...
-python -m pip install -U pip >nul
-pip install -r requirements.txt
+set "PY=.venv\Scripts\python.exe"
+"%PY%" -m pip install -U pip
+"%PY%" -m pip install -r requirements.txt
 if errorlevel 1 (
   echo Retrying essential packages...
-  pip install PyYAML PyQt5 Pillow numpy pyautogui pyperclip SpeechRecognition nltk pytest
-  pip install opencv-python pytesseract mss openai google-genai spacy vosk sounddevice
+  "%PY%" -m pip install PyYAML PyQt5 Pillow numpy pyautogui pyperclip SpeechRecognition nltk pytest
+  "%PY%" -m pip install opencv-python pytesseract mss openai google-genai spacy vosk sounddevice
 )
-pip install vosk sounddevice
-if errorlevel 1 echo [i] Offline speech packages had an issue — Chrome fallback still works.
-pip install -r requirements-optional.txt
-if errorlevel 1 (
-  echo [i] PyAudio skipped — Chrome voice still works.
-)
-python -m pip install PyYAML >nul 2>&1
-python -m spacy download en_core_web_sm >nul 2>&1
+"%PY%" -m pip install vosk sounddevice
+"%PY%" -c "import yaml, PyQt5; print('OK: yaml and PyQt5')"
 
-echo [4/4] Refreshing Desktop icon + launcher...
+echo.
+echo [3/3] Refreshing launcher...
 > "%~dp0Run Automate AI.bat" (
   echo @echo off
   echo cd /d "%~dp0"
+  echo if not exist ".venv\Scripts\activate.bat" ^(
+  echo   echo Run FIX_INSTALL.bat first.
+  echo   pause
+  echo   exit /b 1
+  echo ^)
   echo call .venv\Scripts\activate.bat
   echo python main.py
   echo if errorlevel 1 pause
 )
-if exist "%~dp0CREATE_DESKTOP_ICON.bat" call "%~dp0CREATE_DESKTOP_ICON.bat"
+REM Do not call CREATE_DESKTOP_ICON.bat here — it pauses and starts the app twice.
 
 echo.
 echo  ========================================================
-echo   UPDATE COMPLETE on this laptop
-echo.
-echo   Try commands like:
-echo     Open Chrome
-echo     Open folder Downloads
-echo     Open file phase2 doc
-echo     Open Muneeb report
-echo     Search weather
+echo   UPDATE FINISHED
+echo   Close any old DAI window, then use the new one.
 echo  ========================================================
 echo.
 echo Starting Automate AI now...
 start "" "%~dp0Run Automate AI.bat"
+echo.
+echo This window will stay open. You can close it after the app starts.
 pause
