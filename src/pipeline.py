@@ -486,7 +486,7 @@ class AutomationPipeline:
             emit("Looking for the first search result…")
         else:
             emit(f"Looking for “{element}” on screen…")
-        time.sleep(0.4)
+        time.sleep(0.55)
         frame = self.vision.capture_screen()
         self.automation.capture_region = dict(self.vision.last_region)
         if not self.vision.last_capture_ok:
@@ -615,7 +615,39 @@ class AutomationPipeline:
                         "Could not see the first search result. Make sure Google results are "
                         "visible, then say the blue title, e.g. click Login With Odoo."
                     )
-                raise RuntimeError(f"Could not find on-screen element: {element}")
+                visible = []
+                try:
+                    state = ScreenAnalyzer(self.vision).analyze(frame)
+                    visible = [
+                        {
+                            "text": e.text,
+                            "score": 0.5,
+                            "x": e.x,
+                            "y": e.y,
+                            "width": e.width,
+                            "height": e.height,
+                        }
+                        for e in state.elements
+                        if re.search(
+                            r"login|sign|microsoft|odoo|next|submit|email|password",
+                            e.text or "",
+                            re.I,
+                        )
+                    ][:4]
+                except Exception:
+                    visible = []
+                if visible:
+                    result["needs_confirm"] = True
+                    result["confirm_prompt"] = (
+                        f"I couldn't read “{element}” clearly. Do you mean one of these?"
+                    )
+                    result["candidates"] = visible
+                    result["capture_path"] = result.get("capture_path") or ""
+                    return result
+                raise RuntimeError(
+                    f"Could not find on-screen element: {element}. "
+                    "If the button is visible, install Tesseract OCR and try again."
+                )
         result["capture_path"] = self.vision.save_capture(
             frame if frame is not None else self.vision.last_frame,
             label=f"click_hit_{element}",

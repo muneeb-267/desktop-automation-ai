@@ -32,23 +32,62 @@ def _classify_line(text: str) -> str:
     return "text"
 
 
+def _span(group: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not group:
+        return None
+    group = sorted(group, key=lambda i: int(i.get("x") or 0))
+    text = " ".join(str(i.get("label") or "") for i in group).strip()
+    if not text:
+        return None
+    x0 = int(group[0].get("x") or 0)
+    y0 = min(int(i.get("y") or 0) for i in group)
+    x1 = max(int(i.get("x") or 0) + int(i.get("w") or 0) for i in group)
+    y1 = max(int(i.get("y") or 0) + int(i.get("h") or 0) for i in group)
+    avg = sum(float(i.get("conf") or 70) for i in group) / max(1, len(group))
+    return {"text": text, "x": x0, "y": y0, "w": max(8, x1 - x0), "h": max(8, y1 - y0), "conf": avg}
+
+
 def _group_lines(words: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Group by Tesseract lines AND by visual row so split button labels still join."""
     lines: Dict[Any, List[Dict[str, Any]]] = {}
     for item in words:
         key = (item.get("block"), item.get("line"), int(item.get("y") or 0) // 10)
         lines.setdefault(key, []).append(item)
     out = []
+    seen = set()
     for group in lines.values():
-        group.sort(key=lambda i: int(i.get("x") or 0))
-        text = " ".join(str(i.get("label") or "") for i in group).strip()
-        if not text:
-            continue
-        x0 = int(group[0].get("x") or 0)
-        y0 = min(int(i.get("y") or 0) for i in group)
-        x1 = max(int(i.get("x") or 0) + int(i.get("w") or 0) for i in group)
-        y1 = max(int(i.get("y") or 0) + int(i.get("h") or 0) for i in group)
-        avg = sum(float(i.get("conf") or 70) for i in group) / max(1, len(group))
-        out.append({"text": text, "x": x0, "y": y0, "w": max(8, x1 - x0), "h": max(8, y1 - y0), "conf": avg})
+        span = _span(group)
+        if span and span["text"].lower() not in seen:
+            seen.add(span["text"].lower())
+            out.append(span)
+
+    rows: List[Dict[str, Any]] = []
+    for item in sorted(words, key=lambda w: (int(w.get("y") or 0), int(w.get("x") or 0))):
+        y = int(item.get("y") or 0)
+        h = max(8, int(item.get("h") or 8))
+        placed = False
+        for row in rows:
+            if abs(y - int(row["y"])) <= max(14, int(row["h"] * 0.75)):
+                row["items"].append(item)
+                row["h"] = max(row["h"], h)
+                n = len(row["items"])
+                row["y"] = int((int(row["y"]) * (n - 1) + y) / n)
+                placed = True
+                break
+        if not placed:
+            rows.append({"y": y, "h": h, "items": [item]})
+    for row in rows:
+        items = row["items"]
+        full = _span(items)
+        if full and full["text"].lower() not in seen:
+            seen.add(full["text"].lower())
+            out.append(full)
+        for i in range(len(items)):
+            for j in range(i + 1, min(len(items), i + 4) + 1):
+                span = _span(items[i:j])
+                if span and span["text"].lower() not in seen:
+                    seen.add(span["text"].lower())
+                    out.append(span)
     out.sort(key=lambda r: (r["y"], r["x"]))
     return out
 
@@ -102,49 +141,67 @@ class ScreenAnalyzer:
             path = self.vision.save_capture(img, label="screen_state", boxes=[e.to_dict() for e in elements[:24]])
         except Exception:
             path = ""
-        a11y = _optional_accessibility()
+        a11y = _optional_accessibility(getattr(self.vision, "last_region", None))
         if a11y:
             elements.extend(a11y)
         return ScreenState(elements=elements, width=w, height=h, capture_path=path)
 
 
-def _optional_accessibility() -> List[ScreenElement]:
+def _optional_accessibility(region: Optional[Dict[str, Any]] = None) -> List[ScreenElement]:
     """Best-effort Windows UI Automation. Soft-fail if pywinauto is not installed."""
     try:
         from pywinauto import Desktop  # type: ignore
     except Exception:
         return []
     found: List[ScreenElement] = []
+    left = int((region or {}).get("left") or 0)
+    top = int((region or {}).get("top") or 0)
     try:
         desk = Desktop(backend="uia")
-        win = desk.get_active()
-        if win is None:
-            return []
-        for i, ctrl in enumerate(win.descendants()[:80]):
+        windows = []
+        try:
+            for win in desk.windows():
+                title = (win.window_text() or "").lower()
+                if any(k in title for k in ("chrome", "edge", "horizon", "ucp", "firefox")):
+                    windows.append(win)
+        except Exception:
+            windows = []
+        if not windows:
+            active = desk.get_active()
+            if active is not None:
+                windows = [active]
+        idx = 0
+        for win in windows[:4]:
             try:
-                text = (ctrl.window_text() or "").strip()
-                if not text or len(text) > 80:
-                    continue
-                rec = ctrl.rectangle()
-                kind = "button" if "Button" in str(ctrl.element_info.control_type) else "text"
-                if "Edit" in str(ctrl.element_info.control_type):
-                    kind = "input"
-                found.append(
-                    ScreenElement(
-                        id=f"a11y-{i}",
-                        type=kind,
-                        text=text,
-                        role=str(ctrl.element_info.control_type),
-                        x=int(rec.left),
-                        y=int(rec.top),
-                        width=max(8, int(rec.width())),
-                        height=max(8, int(rec.height())),
-                        confidence=0.92,
-                        source="ACCESSIBILITY",
-                    )
-                )
+                ctrls = win.descendants()[:120]
             except Exception:
                 continue
+            for ctrl in ctrls:
+                try:
+                    text = (ctrl.window_text() or "").strip()
+                    if not text or len(text) > 80:
+                        continue
+                    rec = ctrl.rectangle()
+                    kind = "button" if "Button" in str(ctrl.element_info.control_type) else "text"
+                    if "Edit" in str(ctrl.element_info.control_type):
+                        kind = "input"
+                    found.append(
+                        ScreenElement(
+                            id=f"a11y-{idx}",
+                            type=kind,
+                            text=text,
+                            role=str(ctrl.element_info.control_type),
+                            x=max(0, int(rec.left) - left),
+                            y=max(0, int(rec.top) - top),
+                            width=max(8, int(rec.width())),
+                            height=max(8, int(rec.height())),
+                            confidence=0.92,
+                            source="ACCESSIBILITY",
+                        )
+                    )
+                    idx += 1
+                except Exception:
+                    continue
     except Exception:
         return []
     return found

@@ -43,13 +43,22 @@ def is_first_result_phrase(text: str) -> bool:
 
 def text_matches_query(ocr_text: str, query: str) -> bool:
     """True when an OCR fragment is a real match, not a short substring like 'the'."""
-    text_l = " ".join((ocr_text or "").lower().split())
-    query_l = " ".join((query or "").lower().split())
+    from src.vision.ocr_text import distinctive_tokens, normalize_ocr_query
+
+    text_l = normalize_ocr_query(ocr_text)
+    query_l = normalize_ocr_query(query)
     if not text_l or not query_l:
         return False
     if query_l == text_l or query_l in text_l:
         return True
-    if len(text_l) >= 4 and text_l in query_l:
+    if len(text_l) >= 5 and text_l in query_l:
+        return True
+    q_brands = set(distinctive_tokens(query_l))
+    t_brands = set(distinctive_tokens(text_l))
+    if q_brands and q_brands <= t_brands | set(text_l.split()):
+        if q_brands & set(re.findall(r"[a-z0-9]+", text_l)):
+            return True
+    if q_brands and q_brands & set(re.findall(r"[a-z0-9]+", text_l)):
         return True
     return False
 

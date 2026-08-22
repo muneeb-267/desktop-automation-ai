@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from src.vision.ocr_text import distinctive_tokens, normalize_ocr_query, normalize_ocr_text
 from src.vision.search_result import (
     FIRST_RESULT_ELEMENT,
     is_first_result_phrase,
@@ -124,33 +125,32 @@ class VisionEngine:
         cv2.imwrite(str(path), bgr)
         return str(path)
 
-    def _ocr_words(self, img) -> List[Dict[str, Any]]:
-        import cv2
-
+    def _tesseract_pass(self, gray, psm: int, min_conf: float = 18.0) -> List[Dict[str, Any]]:
         try:
             import pytesseract
             from pytesseract import Output
         except Exception:
             return []
-        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-        gray = cv2.GaussianBlur(gray, (3, 3), 0)
         try:
             data = pytesseract.image_to_data(
-                gray, lang=self.ocr_lang, output_type=Output.DICT
+                gray,
+                lang=self.ocr_lang,
+                output_type=Output.DICT,
+                config=f"--psm {psm}",
             )
         except Exception:
             return []
         words: List[Dict[str, Any]] = []
         n = len(data.get("text", []))
         for i in range(n):
-            text = (data["text"][i] or "").strip()
+            text = normalize_ocr_text((data["text"][i] or "").strip())
             if not text:
                 continue
             try:
                 conf = float(data["conf"][i])
             except (ValueError, TypeError):
                 conf = -1.0
-            if conf < 35:
+            if conf < min_conf:
                 continue
             words.append(
                 {
@@ -166,10 +166,35 @@ class VisionEngine:
             )
         return words
 
+    def _ocr_words(self, img) -> List[Dict[str, Any]]:
+        """Read UI text. Dark buttons need an inverted pass (Horizon Microsoft login)."""
+        import cv2
+
+        from src.vision.ocr_text import merge_ocr_words
+
+        if img is None or getattr(img, "size", 0) == 0:
+            return []
+        try:
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        except Exception:
+            return []
+        inverted = cv2.bitwise_not(gray)
+        passes = [
+            self._tesseract_pass(gray, 11),
+            self._tesseract_pass(inverted, 11),
+        ]
+        words = merge_ocr_words(passes)
+        if len(words) < 8:
+            extra = merge_ocr_words(
+                [self._tesseract_pass(gray, 6), self._tesseract_pass(inverted, 6)]
+            )
+            words = merge_ocr_words([words, extra])
+        return words
+
     def find_text(self, query: str, frame: Optional[np.ndarray] = None) -> DetectionResult:
         """Locate on-screen text via Tesseract OCR and return center coordinates."""
         img = frame if frame is not None else self.capture_screen()
-        query_l = query.strip().lower()
+        query_l = normalize_ocr_query(query)
         if not query_l:
             return DetectionResult(found=False, label=query, method="ocr")
         if is_first_result_phrase(query_l):
@@ -181,10 +206,14 @@ class VisionEngine:
             return DetectionResult(found=False, label=query, method="ocr", confidence=0.0, boxes=boxes)
 
         best: Optional[DetectionResult] = None
+        brands = distinctive_tokens(query_l)
 
-        def consider(label: str, x: int, y: int, w: int, h: int, conf: float) -> None:
+        def consider(label: str, x: int, y: int, w: int, h: int, conf: float, *, bonus: float = 0.0) -> None:
             nonlocal best
             cx, cy = x + w // 2, y + h // 2
+            score = max(0.0, min(1.0, conf / 100.0 + bonus))
+            # Prefer the longest phrase that still matches (login With Microsoft > login).
+            length = len((label or "").split())
             candidate = DetectionResult(
                 found=True,
                 x=cx,
@@ -193,43 +222,41 @@ class VisionEngine:
                 height=h,
                 label=label,
                 method="ocr",
-                confidence=max(0.0, min(1.0, conf / 100.0)),
+                confidence=score,
                 boxes=boxes,
             )
-            if best is None or candidate.confidence > best.confidence:
+            if best is None:
                 best = candidate
+                best._len = length  # type: ignore[attr-defined]
+                return
+            if length > getattr(best, "_len", 0) or (
+                length == getattr(best, "_len", 0) and candidate.confidence > best.confidence
+            ):
+                best = candidate
+                best._len = length  # type: ignore[attr-defined]
 
         for item in words:
             if text_matches_query(item["label"], query_l):
                 consider(item["label"], item["x"], item["y"], item["w"], item["h"], item["conf"])
 
-        if " " in query_l and words:
-            lines: Dict[Tuple[Any, Any], List[Dict[str, Any]]] = {}
-            for item in words:
-                key = (item.get("block"), item.get("line"))
-                lines.setdefault(key, []).append(item)
-            for group in lines.values():
-                group.sort(key=lambda w: w["x"])
-                joined = " ".join(w["label"] for w in group)
-                if query_l in joined.lower():
-                    x0 = group[0]["x"]
-                    y0 = min(w["y"] for w in group)
-                    x1 = group[-1]["x"] + group[-1]["w"]
-                    y1 = max(w["y"] + w["h"] for w in group)
-                    avg_conf = sum(w["conf"] for w in group) / max(1, len(group))
-                    consider(joined, x0, y0, x1 - x0, y1 - y0, avg_conf)
-                else:
-                    for i in range(len(group)):
-                        for j in range(i + 1, len(group) + 1):
-                            chunk = group[i:j]
-                            phrase = " ".join(w["label"] for w in chunk)
-                            if query_l == phrase.lower() or query_l in phrase.lower():
-                                x0 = chunk[0]["x"]
-                                y0 = min(w["y"] for w in chunk)
-                                x1 = chunk[-1]["x"] + chunk[-1]["w"]
-                                y1 = max(w["y"] + w["h"] for w in chunk)
-                                avg_conf = sum(w["conf"] for w in chunk) / max(1, len(chunk))
-                                consider(phrase, x0, y0, x1 - x0, y1 - y0, avg_conf)
+        rows: Dict[int, List[Dict[str, Any]]] = {}
+        for item in words:
+            rows.setdefault(int(item.get("y") or 0) // 16, []).append(item)
+        for group in list(rows.values()):
+            group.sort(key=lambda w: w["x"])
+            for i in range(len(group)):
+                for j in range(i + 1, min(len(group), i + 5) + 1):
+                    chunk = group[i:j]
+                    phrase = " ".join(w["label"] for w in chunk)
+                    phrase_n = normalize_ocr_query(phrase)
+                    if text_matches_query(phrase, query_l) or query_l == phrase_n or query_l in phrase_n:
+                        x0 = chunk[0]["x"]
+                        y0 = min(w["y"] for w in chunk)
+                        x1 = chunk[-1]["x"] + chunk[-1]["w"]
+                        y1 = max(w["y"] + w["h"] for w in chunk)
+                        avg_conf = sum(w["conf"] for w in chunk) / max(1, len(chunk))
+                        bonus = 0.15 if brands and all(b in phrase_n for b in brands) else 0.0
+                        consider(phrase, x0, y0, x1 - x0, y1 - y0, avg_conf, bonus=bonus)
 
         if best:
             best.boxes = boxes

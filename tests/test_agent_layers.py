@@ -1,4 +1,5 @@
 from src.agent.actions import intent_to_action
+from src.agent.analyzer import _group_lines
 from src.agent.browser import ensure_url
 from src.agent.elements import ScreenElement
 from src.agent.finalizer import SpeechFinalizer, looks_incomplete
@@ -8,6 +9,8 @@ from src.agent.normalize import is_final_transcript, normalize_command
 from src.agent.safety_gate import must_confirm
 from src.agent.sensitive import history_line_for_type, is_sensitive_request, redact
 from src.agent.session import CANCELLED, TaskManager
+from src.vision.ocr_text import normalize_ocr_text
+from src.vision.search_result import text_matches_query
 
 
 def test_partial_transcript_never_becomes_an_action():
@@ -136,3 +139,32 @@ def test_click_it_uses_last_target():
     hit = mgr.resolve_reference("click it")
     assert hit is not None
     assert hit.get("text") == "Next"
+
+
+def test_horizon_microsoft_button_matches_despite_case_and_ocr_typos():
+    assert text_matches_query("login With Microsoft", "login with microsoft")
+    assert text_matches_query("Mlcrosoft", "click login with microsoft")
+    assert "microsoft" in normalize_ocr_text("micro soft").lower()
+    assert "microsoft" in normalize_ocr_text("Microsoit").lower()
+
+    els = [
+        ScreenElement(id="u", type="input", text="Enter Username", x=80, y=200, width=300, height=40),
+        ScreenElement(id="p", type="input", text="Enter Password", x=80, y=260, width=300, height=40),
+        ScreenElement(id="o", type="button", text="Login With Odoo", x=80, y=330, width=260, height=44),
+        ScreenElement(id="m", type="button", text="login With Microsoft", x=80, y=400, width=280, height=48),
+    ]
+    hit = match_elements("Click Login with Microsoft", els)
+    assert hit.best is not None
+    assert "microsoft" in hit.best.element.text.lower()
+    assert hit.best.score >= 0.90
+
+
+def test_split_ocr_lines_still_form_microsoft_button():
+    words = [
+        {"x": 90, "y": 450, "w": 48, "h": 16, "label": "login", "line": 8, "block": 4, "conf": 80},
+        {"x": 142, "y": 450, "w": 40, "h": 16, "label": "With", "line": 8, "block": 4, "conf": 78},
+        {"x": 188, "y": 452, "w": 90, "h": 18, "label": "Microsoft", "line": 9, "block": 5, "conf": 62},
+    ]
+    lines = _group_lines(words)
+    texts = [row["text"].lower() for row in lines]
+    assert any("microsoft" in t and "login" in t for t in texts)

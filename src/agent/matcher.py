@@ -8,6 +8,7 @@ from difflib import SequenceMatcher
 from typing import List, Sequence
 
 from src.agent.elements import ScreenElement
+from src.vision.ocr_text import distinctive_tokens, normalize_ocr_query
 
 HIGH = 0.90
 MEDIUM = 0.65
@@ -69,15 +70,18 @@ def _expand(token: str) -> set:
 
 
 def score_element(query: str, element: ScreenElement) -> float:
-    q = " ".join((query or "").lower().split())
-    q = re.sub(r"^(click|tap|press|open)\s+(on\s+)?(the\s+)?", "", q).strip()
-    text = " ".join((element.text or "").lower().split())
+    q = normalize_ocr_query(query)
+    text = normalize_ocr_query(element.text or "")
     if not q or not text:
         return 0.0
     if q == text:
         return 0.99
     if q in text:
         return 0.96 if len(q) >= 4 else 0.82
+    brands = set(distinctive_tokens(q))
+    text_toks = set(_tokens(text))
+    if brands and brands <= text_toks:
+        return 0.95
     if text in q and len(text) >= 4:
         return round(0.70 + 0.25 * (len(text) / max(1, len(q))), 3)
     ratio = SequenceMatcher(None, q, text).ratio()
