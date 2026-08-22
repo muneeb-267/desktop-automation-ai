@@ -116,6 +116,25 @@ def test_complete_command():
     assert not looks_complete_wake("have a nice day")
 
 
+def test_custom_agent_name_wakes():
+    from src.speech.wake import agent_name, is_wakeup_phrase, sanitize_agent_name, set_agent_name
+
+    try:
+        assert sanitize_agent_name("click") == "DAI"
+        assert sanitize_agent_name("My Bot!") == "My Bot"
+        set_agent_name("Alex")
+        assert agent_name() == "Alex"
+        assert is_wakeup_phrase("Alex wakeup")
+        assert is_wakeup_phrase("hey alex wake up")
+        assert is_wakeup_phrase("DAI wakeup")
+        assert not is_wakeup_phrase("open chrome")
+        kind, leftover = classify_utterance("alex wakeup open chrome", session_active=False)
+        assert kind == "wake"
+        assert "open" in leftover and "chrome" in leftover
+    finally:
+        set_agent_name("DAI")
+
+
 def test_strip_wakeup():
     assert strip_wakeup("DAI wakeup open chrome") == "open chrome"
     assert strip_wakeup("wake up dai click login") == "click login"

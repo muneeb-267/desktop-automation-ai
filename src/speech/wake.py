@@ -1,54 +1,145 @@
-"""Wake-word helpers for the DAI always-on listener (no network)."""
+"""Wake-word helpers for the always-on listener (no network)."""
 
 from __future__ import annotations
 
 import json
 import re
-from typing import Literal, Tuple
+from typing import List, Literal, Tuple
 
 Kind = Literal["ignore", "wake", "command", "close", "minimize", "restore", "repeat"]
 
-# "DAI" is often heard as die / dye / they / day / guy.
-# Bare "day"/"guy" count as wake only as the whole utterance, not mid-sentence.
-_WAKE_CORE = r"(?:d\.?\s*a\.?\s*i\.?|dai|die|dye)"
-_WAKE = rf"(?:hey\s+|ok\s+|okay\s+|yo\s+)?{_WAKE_CORE}"
-_WAKE_CLOSE = (
-    r"(?:hey\s+|ok\s+|okay\s+|yo\s+)?"
-    r"(?:d\.?\s*a\.?\s*i\.?|dai|die|dye|they|day|guy)"
-)
-_WAKEUP_TAIL = r"(?:wake\s*up|wakeup|wake)"
+DEFAULT_AGENT_NAME = "DAI"
+_BLOCKED_NAMES = {
+    "open",
+    "click",
+    "stop",
+    "sleep",
+    "type",
+    "search",
+    "google",
+    "chrome",
+    "close",
+    "cancel",
+}
 
-WAKE_GRAMMAR = json.dumps(
-    [
-        "dai",
-        "hey dai",
-        "ok dai",
-        "okay dai",
-        "yo dai",
-        "die",
-        "dye",
-        "they",
-        "day",
-        "guy",
-        "dai wakeup",
-        "dai wake up",
-        "dai wake",
-        "wake up dai",
-        "wakeup dai",
-        "die wakeup",
-        "die wake up",
-        "day wakeup",
-        "they wakeup",
-        "hey dai wakeup",
-        "hey dai wake up",
-        "dai sleep",
-        "dai close now",
-        "die close now",
-        "they close now",
-        "hey dai close now",
+# "DAI" is often heard as die / dye / they / day / guy.
+_DAI_CORE = r"(?:d\.?\s*a\.?\s*i\.?|dai|die|dye)"
+_DAI_LOOSE = r"(?:d\.?\s*a\.?\s*i\.?|dai|die|dye|they|day|guy)"
+_WAKEUP_TAIL = r"(?:wake\s*up|wakeup|wake)"
+_PREFIX = r"(?:hey\s+|ok\s+|okay\s+|yo\s+)?"
+
+_agent_name = DEFAULT_AGENT_NAME
+_WAKE_CORE = _DAI_CORE
+_WAKE = rf"{_PREFIX}{_WAKE_CORE}"
+_WAKE_CLOSE = rf"{_PREFIX}{_DAI_LOOSE}"
+WAKE_GRAMMAR = "[]"
+
+
+def agent_name() -> str:
+    return _agent_name
+
+
+def sanitize_agent_name(name: str) -> str:
+    raw = " ".join((name or "").split())
+    raw = re.sub(r"[^A-Za-z0-9 ]+", "", raw).strip()
+    if not raw or raw.lower() in _BLOCKED_NAMES:
+        return DEFAULT_AGENT_NAME
+    if len(raw) > 24:
+        raw = raw[:24].strip()
+    if len(raw) < 2:
+        return DEFAULT_AGENT_NAME
+    return raw
+
+
+def _name_pattern(name: str) -> str:
+    parts = [re.escape(p) for p in name.lower().split() if p]
+    if not parts:
+        return _DAI_CORE
+    spaced = r"\s+".join(parts)
+    compact = re.escape("".join(name.lower().split()))
+    cores = [spaced]
+    if compact != spaced:
+        cores.append(compact)
+    if name.lower() != "dai":
+        cores.append(_DAI_CORE)
+    else:
+        return _DAI_CORE
+    return "(?:" + "|".join(cores) + ")"
+
+
+def _grammar_phrases(name: str) -> List[str]:
+    n = name.lower()
+    phrases = [
+        n,
+        f"hey {n}",
+        f"ok {n}",
+        f"okay {n}",
+        f"yo {n}",
+        f"{n} wakeup",
+        f"{n} wake up",
+        f"{n} wake",
+        f"wake up {n}",
+        f"wakeup {n}",
+        f"hey {n} wakeup",
+        f"hey {n} wake up",
+        f"{n} sleep",
+        f"{n} close now",
         "[unk]",
     ]
-)
+    if n != "dai":
+        phrases.extend(
+            [
+                "dai",
+                "hey dai",
+                "dai wakeup",
+                "dai wake up",
+                "wake up dai",
+                "dai sleep",
+                "dai close now",
+            ]
+        )
+    else:
+        phrases.extend(
+            [
+                "die",
+                "dye",
+                "they",
+                "day",
+                "guy",
+                "die wakeup",
+                "die wake up",
+                "day wakeup",
+                "they wakeup",
+                "die close now",
+                "they close now",
+                "hey dai close now",
+            ]
+        )
+    # unique, keep order
+    out, seen = [], set()
+    for p in phrases:
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def set_agent_name(name: str) -> str:
+    """Apply a user-chosen wake name. DAI remains a backup wake word."""
+    global _agent_name, _WAKE_CORE, _WAKE, _WAKE_CLOSE, WAKE_GRAMMAR
+    cleaned = sanitize_agent_name(name)
+    _agent_name = cleaned
+    _WAKE_CORE = _name_pattern(cleaned)
+    _WAKE = rf"{_PREFIX}{_WAKE_CORE}"
+    if cleaned.lower() == "dai":
+        _WAKE_CLOSE = rf"{_PREFIX}{_DAI_LOOSE}"
+    else:
+        _WAKE_CLOSE = rf"{_PREFIX}(?:{_WAKE_CORE}|{_DAI_LOOSE})"
+    WAKE_GRAMMAR = json.dumps(_grammar_phrases(cleaned))
+    return _agent_name
+
+
+set_agent_name(DEFAULT_AGENT_NAME)
 
 
 def normalize(text: str) -> str:
@@ -81,8 +172,9 @@ def is_close_phrase(text: str, *, session_active: bool = False) -> bool:
         return True
     if re.search(r"\bclose\s+now\b", t) and re.search(rf"^{_WAKE_CLOSE}\b", t):
         return True
+    named = re.escape(_agent_name.lower())
     if session_active and re.search(
-        r"^(close\s+now|stop\s+listening|go\s+to\s+sleep|sleep(\s+now)?|dai sleep)$",
+        rf"^(close\s+now|stop\s+listening|go\s+to\s+sleep|sleep(\s+now)?|dai sleep|{named} sleep)$",
         t,
     ):
         return True
@@ -114,11 +206,14 @@ def is_wakeup_phrase(text: str) -> bool:
         return True
     if re.search(rf"\b{_WAKEUP_TAIL}\s+{_WAKE_CORE}\b", t):
         return True
-    if re.search(rf"\b{_WAKEUP_TAIL}\s+(?:they|day|guy)\b", t):
+    if _agent_name.lower() == "dai" and re.search(rf"\b{_WAKEUP_TAIL}\s+(?:they|day|guy)\b", t):
         return True
     compact = t.replace(" ", "")
     if "wakeup" in compact or "wake up" in t:
-        if re.search(rf"\b(?:dai|die|dye|they|day|guy|hey)\b", t):
+        named = re.escape(_agent_name.lower())
+        if re.search(rf"\b(?:dai|die|dye|hey|{named})\b", t):
+            return True
+        if _agent_name.lower() == "dai" and re.search(r"\b(?:they|day|guy)\b", t):
             return True
     return False
 
@@ -136,7 +231,8 @@ def looks_like_wakeup_progress(text: str) -> bool:
         return False
     if is_wakeup_phrase(t) or is_wake_phrase(t) or is_wakeup_followup(t):
         return True
-    return bool(re.search(r"\b(dai|die|dye|wake)\b", t))
+    named = re.escape(_agent_name.lower())
+    return bool(re.search(rf"\b(dai|die|dye|wake|{named})\b", t))
 
 
 def strip_wakeup(text: str) -> str:
@@ -152,7 +248,7 @@ def is_wake_phrase(text: str) -> bool:
     if not t:
         return False
     # Whole-utterance aliases Vosk often produces instead of "DAI"
-    if t in (
+    if _agent_name.lower() == "dai" and t in (
         "they",
         "day",
         "guy",

@@ -58,6 +58,29 @@ class SettingsPage(QWidget):
         cl.setContentsMargins(24, 22, 24, 22)
         cl.setSpacing(18)
 
+        cl.addWidget(self._section("Agent name"))
+        name_row = QHBoxLayout()
+        name_row.setSpacing(12)
+        name_lbl = QLabel("Call me")
+        name_lbl.setMinimumWidth(140)
+        self.agent_name = QLineEdit()
+        self.agent_name.setText("DAI")
+        self.agent_name.setMaxLength(24)
+        self.agent_name.setPlaceholderText("DAI")
+        self.agent_name.setMinimumHeight(34)
+        self.agent_name.setMinimumWidth(180)
+        name_row.addWidget(name_lbl)
+        name_row.addWidget(self.agent_name)
+        name_row.addStretch(1)
+        cl.addLayout(name_row)
+        name_tip = QLabel(
+            "Say this name plus “wakeup” to start listening, e.g. Alex wakeup. "
+            "DAI still works as a backup."
+        )
+        name_tip.setObjectName("pageSubtitle")
+        name_tip.setWordWrap(True)
+        cl.addWidget(name_tip)
+
         # Appearance
         cl.addWidget(self._section("Appearance"))
         theme_row = QHBoxLayout()
@@ -260,6 +283,7 @@ class SettingsPage(QWidget):
         self.cloud_ai.setChecked(str(conf.get("cloud_ai", "0")) in ("1", "true", "True"))
         self.store_shots.setChecked(str(conf.get("store_screenshots", "1")) in ("1", "true", "True"))
         self.store_history.setChecked(str(conf.get("store_history", "1")) in ("1", "true", "True"))
+        self.agent_name.setText(str(conf.get("agent_name") or "DAI"))
 
     def _save(self) -> None:
         payload = {
@@ -279,6 +303,7 @@ class SettingsPage(QWidget):
             "cloud_ai": "1" if self.cloud_ai.isChecked() else "0",
             "store_screenshots": "1" if self.store_shots.isChecked() else "0",
             "store_history": "1" if self.store_history.isChecked() else "0",
+            "agent_name": self.agent_name.text().strip() or "DAI",
         }
         if self.openai_key.text().strip():
             payload["openai_api_key"] = self.openai_key.text().strip()

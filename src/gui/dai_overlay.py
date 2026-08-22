@@ -31,6 +31,7 @@ class DaiOverlay(QWidget):
         self._clarifying = False
         self._element_confirm = False
         self._chip_buttons: List[QPushButton] = []
+        self._agent_name = "DAI"
 
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 12, 14, 12)
@@ -104,6 +105,12 @@ class DaiOverlay(QWidget):
         root.addWidget(self.confirm_host)
         self.set_mode("sleep")
 
+    def set_brand(self, name: str) -> None:
+        self._agent_name = (name or "DAI").strip() or "DAI"
+        self.title.setText(self._agent_name)
+        if self.line.text().startswith("Sleeping"):
+            self.set_mode("sleep")
+
     def place_corner(self) -> None:
         screen = self.screen()
         if screen is None:
@@ -121,7 +128,7 @@ class DaiOverlay(QWidget):
             self.clear_clarify()
         if mode == "sleep":
             self.dot.setStyleSheet("color:#94a3b8;font-size:14px;")
-            self.line.setText(detail or "Sleeping — say “DAI wakeup”")
+            self.line.setText(detail or f"Sleeping — say “{self._agent_name} wakeup”")
             self.hint.setText("Google mic. Click the pill if wakeup is not heard.")
         elif mode == "active":
             self.dot.setStyleSheet("color:#16a34a;font-size:14px;")

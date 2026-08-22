@@ -60,12 +60,14 @@ from src.gui.highlight_overlay import HighlightOverlay
 from src.nlp.clarify import clarify_heard
 from src.speech.dai_chrome import DaiChromeThread, chrome_available, set_dai_chrome_minimized
 from src.speech.wake import (
+    agent_name,
     classify_utterance,
     clean_spoken_command,
     is_wake_phrase,
     is_wakeup_followup,
     is_wakeup_phrase,
     looks_like_wakeup_progress,
+    set_agent_name,
     strip_wake,
     strip_wakeup,
 )
@@ -342,19 +344,8 @@ class MainWindow(QMainWindow):
             openai_key=str(conf.get("openai_api_key") or speech_cfg.get("openai_api_key") or "") if cloud_on else "",
             gemini_key=str(conf.get("gemini_api_key") or speech_cfg.get("gemini_api_key") or "") if cloud_on else "",
         )
-        cloud = self.speech.cloud_status()
-        bits = ["DAI Google mic (say DAI wakeup)"]
-        if cloud["openai"]:
-            bits.append("Whisper")
-        if cloud["gemini"]:
-            bits.append("Gemini")
-        bits.append("Chrome fallback")
-        if cloud["openai"]:
-            bits.append("Whisper")
-        if cloud["gemini"]:
-            bits.append("Gemini")
-        self.page_voice.set_engine_label("Engine: " + " · ".join(bits))
         self._apply_theme(str(conf.get("theme") or self.config.get("ui", {}).get("theme", "light")))
+        self._apply_agent_name(str(conf.get("agent_name") or self.config.get("speech", {}).get("wake_word") or "DAI"))
 
     def _apply_theme(self, theme: str) -> None:
         app = QApplication.instance()
@@ -363,6 +354,27 @@ class MainWindow(QMainWindow):
             app.setStyleSheet(style)
         self.setStyleSheet(style)
         self.conf_repo.set(self.user["user_id"], "theme", theme)
+
+    def _apply_agent_name(self, name: str) -> None:
+        before = agent_name()
+        chosen = set_agent_name(name)
+        self.conf_repo.set(self.user["user_id"], "agent_name", chosen)
+        if (
+            before.lower() != chosen.lower()
+            and self._dai_thread is not None
+            and getattr(self, "_dai_engine", "") == "offline"
+        ):
+            QTimer.singleShot(250, self._restart_dai_listener)
+        if self._dai_overlay is not None:
+            self._dai_overlay.set_brand(chosen)
+        wake = f"{chosen} wakeup"
+        self.page_voice.set_engine_label(f"Engine: {chosen} Google mic — say {wake}")
+        self.page_agent.set_status(f"Ready — type a goal, or say {wake}")
+        if self._dai_overlay is not None and not self._dai_active:
+            self._dai_overlay.set_mode("sleep", f"Sleeping — say “{wake}”")
+
+    def _wake_prompt(self) -> str:
+        return f"{agent_name()} wakeup"
 
     def _save_settings(self, values: dict) -> None:
         self.conf_repo.update_many(self.user["user_id"], values)
@@ -377,19 +389,13 @@ class MainWindow(QMainWindow):
             self.speech.set_api_keys(openai_key="", gemini_key="")
         if values.get("theme"):
             self._apply_theme(str(values["theme"]))
-        cloud = self.speech.cloud_status()
-        bits = ["DAI Google mic (say DAI wakeup)"]
-        if cloud["openai"]:
-            bits.append("Whisper")
-        if cloud["gemini"]:
-            bits.append("Gemini")
-        bits.append("Chrome fallback")
-        if cloud["openai"]:
-            bits.append("Whisper")
-        if cloud["gemini"]:
-            bits.append("Gemini")
-        self.page_voice.set_engine_label("Engine: " + " · ".join(bits))
-        QMessageBox.information(self, "Settings", "Settings applied.")
+        if values.get("agent_name") is not None:
+            self._apply_agent_name(str(values.get("agent_name") or "DAI"))
+        QMessageBox.information(
+            self,
+            "Settings",
+            f"Settings applied.\nSay “{agent_name()} wakeup” to start listening.",
+        )
         self.toast.show("Settings saved", "success")
         self._show_page("dashboard")
 
@@ -841,7 +847,9 @@ class MainWindow(QMainWindow):
 
     def _test_mic(self) -> None:
         self.speech.warm_up()
-        self.page_diagnostics.set_test_output("Microphone warm-up requested. Say DAI wakeup or use Speak.")
+        self.page_diagnostics.set_test_output(
+            f"Microphone warm-up requested. Say {self._wake_prompt()} or use Speak."
+        )
         self.toast.show("Mic warm-up started", "info")
 
     def shutdown(self) -> None:
@@ -864,6 +872,7 @@ class MainWindow(QMainWindow):
         self._dai_overlay.yes_requested.connect(self._on_element_yes)
         self._dai_overlay.no_requested.connect(self._on_element_no)
         self._dai_overlay.place_corner()
+        self._dai_overlay.set_brand(agent_name())
 
     def _start_dai_listener(self) -> None:
         if self._dai_thread is not None and self._dai_thread.isRunning():
@@ -905,11 +914,14 @@ class MainWindow(QMainWindow):
 
     def _on_dai_chrome_ready(self) -> None:
         self._dai_engine = "google"
-        self._put_dai_to_sleep("Sleeping — say DAI wakeup")
+        self._put_dai_to_sleep(f"Sleeping — say {self._wake_prompt()}")
         self.page_voice.set_engine_label(
-            "Engine: DAI Google mic — say DAI wakeup, then keep speaking steps until done"
+            f"Engine: {agent_name()} Google mic — say {self._wake_prompt()}, then keep speaking steps"
         )
-        self.toast.show("DAI is sleeping. Say DAI wakeup, then keep speaking steps.", "info")
+        self.toast.show(
+            f"{agent_name()} is sleeping. Say {self._wake_prompt()} when you need it.",
+            "info",
+        )
 
     def _on_dai_chrome_fail(self, message: str) -> None:
         if self._dai_thread is not None:
@@ -961,9 +973,9 @@ class MainWindow(QMainWindow):
         thread.failed.connect(self._on_dai_setup_fail)
         self._dai_thread = thread
         thread.start()
-        self._put_dai_to_sleep("Offline mic. Sleeping — say DAI wakeup")
+        self._put_dai_to_sleep(f"Offline mic. Sleeping — say {self._wake_prompt()}")
         self.page_voice.set_engine_label(
-            "Engine: Offline DAI fallback — say DAI wakeup (install Chrome for better listen)"
+            f"Engine: Offline {agent_name()} fallback — say {self._wake_prompt()} (install Chrome for better listen)"
         )
 
     def _on_dai_partial(self, text: str) -> None:
@@ -1034,7 +1046,7 @@ class MainWindow(QMainWindow):
                 self._dai_primed = True
                 self._dai_prime_timer.start(4000)
                 if self._dai_overlay:
-                    self._dai_overlay.set_mode("sleep", "Heard DAI — now say wakeup")
+                    self._dai_overlay.set_mode("sleep", f"Heard {agent_name()} — now say wakeup")
                 return
             return
 
@@ -1045,8 +1057,8 @@ class MainWindow(QMainWindow):
             return
         self._dai_last_at = now
         if kind == "close":
-            self._put_dai_to_sleep("Sleeping — say DAI wakeup")
-            self.page_voice.set_status_message("DAI went to sleep")
+            self._put_dai_to_sleep(f"Sleeping — say {self._wake_prompt()}")
+            self.page_voice.set_status_message(f"{agent_name()} went to sleep")
             return
         if kind == "minimize":
             self.showMinimized()
@@ -1101,7 +1113,7 @@ class MainWindow(QMainWindow):
         if interp.end_task:
             self.tasks.complete("Task completed.")
             self.page_agent.set_task_history(self.tasks.session.history_lines() if self.tasks.session else [])
-            self._put_dai_to_sleep("Task completed. Say DAI wakeup")
+            self._put_dai_to_sleep(f"Task completed. Say {self._wake_prompt()}")
             return
         if self.tasks.session and self.tasks.session.pending:
             low = spoken.lower()
@@ -1316,7 +1328,7 @@ class MainWindow(QMainWindow):
             self._dai_thread.set_session_active(False)
         if self._dai_overlay:
             self._dai_overlay.clear_clarify()
-            self._dai_overlay.set_mode("sleep", detail or "Sleeping — say DAI wakeup")
+            self._dai_overlay.set_mode("sleep", detail or f"Sleeping — say {self._wake_prompt()}")
         self.page_agent.clear_clarify()
 
     def _arm_dai_idle(self) -> None:
@@ -1326,12 +1338,12 @@ class MainWindow(QMainWindow):
         if self._busy():
             self._arm_dai_idle()
             return
-        self._put_dai_to_sleep("Timed out. Sleeping — say DAI wakeup")
+        self._put_dai_to_sleep(f"Timed out. Sleeping — say {self._wake_prompt()}")
 
     def _dai_clear_prime(self) -> None:
         self._dai_primed = False
         if self._dai_overlay and not self._dai_active:
-            self._dai_overlay.set_mode("sleep", "Sleeping — say DAI wakeup")
+            self._dai_overlay.set_mode("sleep", f"Sleeping — say {self._wake_prompt()}")
 
     def _dai_tap_wake(self) -> None:
         """Click the DAI pill if “DAI wakeup” is not heard."""
