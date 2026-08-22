@@ -1,7 +1,10 @@
 from src.vision.search_result import (
     FIRST_RESULT_ELEMENT,
     is_first_result_phrase,
+    list_search_results,
+    parse_result_index,
     pick_first_search_result,
+    pick_search_result,
     text_matches_query,
 )
 
@@ -37,3 +40,31 @@ def test_pick_first_google_result_title():
     assert hit is not None
     assert "login" in hit["label"].lower()
     assert "odoo" in hit["label"].lower()
+
+
+def test_live_google_second_and_third_results():
+    assert parse_result_index("click on the second result") == 2
+    assert parse_result_index("open the third result") == 3
+    assert is_first_result_phrase("click the first result")
+    words = [
+        {"x": 80, "y": 40, "w": 80, "h": 16, "label": "Google", "line": 1, "block": 1, "conf": 90},
+        {"x": 80, "y": 230, "w": 180, "h": 16, "label": "University of Central Punjab", "line": 2, "block": 2, "conf": 88},
+        {"x": 80, "y": 252, "w": 220, "h": 14, "label": "https://horizon.ucp.edu.pk", "line": 3, "block": 2, "conf": 90},
+        {"x": 80, "y": 278, "w": 70, "h": 22, "label": "Login", "line": 4, "block": 2, "conf": 90},
+        {"x": 155, "y": 278, "w": 40, "h": 22, "label": "With", "line": 4, "block": 2, "conf": 90},
+        {"x": 200, "y": 278, "w": 60, "h": 22, "label": "Odoo", "line": 4, "block": 2, "conf": 90},
+        {"x": 80, "y": 360, "w": 140, "h": 16, "label": "Punjab Colleges", "line": 5, "block": 3, "conf": 86},
+        {"x": 80, "y": 382, "w": 240, "h": 14, "label": "https://mcom.pgc.edu.pk", "line": 6, "block": 3, "conf": 88},
+        {"x": 80, "y": 408, "w": 70, "h": 20, "label": "Student", "line": 7, "block": 3, "conf": 90},
+        {"x": 155, "y": 408, "w": 60, "h": 20, "label": "Login", "line": 7, "block": 3, "conf": 90},
+        {"x": 80, "y": 490, "w": 220, "h": 14, "label": "https://adpportal.ucp.edu.pk", "line": 8, "block": 4, "conf": 88},
+        {"x": 80, "y": 516, "w": 40, "h": 20, "label": "UCP", "line": 9, "block": 4, "conf": 86},
+        {"x": 130, "y": 516, "w": 80, "h": 20, "label": "Student's", "line": 9, "block": 4, "conf": 86},
+        {"x": 220, "y": 516, "w": 70, "h": 20, "label": "Portal", "line": 9, "block": 4, "conf": 86},
+    ]
+    ranked = list_search_results(words, 1280, 720)
+    assert len(ranked) >= 2
+    first = pick_search_result(words, 1280, 720, 1)
+    second = pick_search_result(words, 1280, 720, 2)
+    assert first is not None and "odoo" in first["label"].lower()
+    assert second is not None and "student" in second["label"].lower()

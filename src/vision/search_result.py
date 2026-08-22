@@ -1,27 +1,51 @@
-"""Pick the first Google-style search result from OCR words (no Tesseract)."""
+"""Rank live Google-style results from the CURRENT screen (OCR + optional blue links)."""
 
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 FIRST_RESULT_ELEMENT = "__first_result__"
 
-_FIRST_RESULT_RE = re.compile(
-    r"\b(?:click|tap|open|go\s+to)?\s*(?:on\s+)?(?:the\s+)?(?:first|top|1st)\s+"
-    r"(?:search\s+)?(?:result|link|hit)\b",
+_ORDINALS = {
+    "first": 1,
+    "1st": 1,
+    "top": 1,
+    "one": 1,
+    "second": 2,
+    "2nd": 2,
+    "two": 2,
+    "third": 3,
+    "3rd": 3,
+    "three": 3,
+    "fourth": 4,
+    "4th": 4,
+    "four": 4,
+    "fifth": 5,
+    "5th": 5,
+    "five": 5,
+}
+
+_RESULT_PHRASE = re.compile(
+    r"\b(?:click|tap|open|go\s+to)?\s*(?:on\s+)?(?:the\s+)?(?P<which>"
+    r"first|second|third|fourth|fifth|top|1st|2nd|3rd|4th|5th|"
+    r"one|two|three|four|five|\d+(?:st|nd|rd|th)?"
+    r")\s+(?:search\s+)?(?:result|link|hit)\b",
     re.I,
 )
-_FIRST_RESULT_ONLY_RE = re.compile(
-    r"^(?:on\s+)?(?:the\s+)?(?:first|top|1st)\s+(?:search\s+)?(?:result|link|hit)$",
+_RESULT_ONLY = re.compile(
+    r"^(?:on\s+)?(?:the\s+)?(?P<which>first|second|third|fourth|fifth|top|"
+    r"1st|2nd|3rd|4th|5th|one|two|three|four|five|\d+(?:st|nd|rd|th)?)"
+    r"\s+(?:search\s+)?(?:result|link|hit)$",
     re.I,
 )
 
 _SKIP_LINE = re.compile(
     r"(dai\b|google mic|wakeup|sleeping|heard:|do you mean|"
     r"ai overview|people also ask|sponsored|about this result|"
-    r"^all$|^images$|^videos$|^maps$|^news$|^shopping$|^more$|"
+    r"^all$|^images$|^videos$|^maps$|^news$|^shopping$|^forums$|^more$|"
     r"^tools$|^settings$|^sign in$|^gmail$|^search$|^app$|"
+    r"^all images$|^all images forums$|"
     r"translations?|feedback|missing:|did you mean)",
     re.I,
 )
@@ -31,14 +55,43 @@ _URLISH = re.compile(
     re.I,
 )
 
+_TITLE_HINT = re.compile(
+    r"\b(login|log in|sign in|portal|student|official|home|dashboard|result)\b",
+    re.I,
+)
 
-def is_first_result_phrase(text: str) -> bool:
+
+def _which_to_index(which: str) -> Optional[int]:
+    w = (which or "").strip().lower()
+    if w in _ORDINALS:
+        return _ORDINALS[w]
+    m = re.match(r"(\d+)", w)
+    if m:
+        n = int(m.group(1))
+        if 1 <= n <= 9:
+            return n
+    return None
+
+
+def parse_result_index(text: str) -> Optional[int]:
+    """Return 1-based result index from speech, or None if this is not a ranked-result command."""
     t = " ".join((text or "").lower().split())
     if not t:
-        return False
+        return None
     if t in {FIRST_RESULT_ELEMENT, "1", "first", "first result"}:
-        return True
-    return bool(_FIRST_RESULT_RE.search(t) or _FIRST_RESULT_ONLY_RE.match(t))
+        return 1
+    m = _RESULT_PHRASE.search(t) or _RESULT_ONLY.match(t)
+    if not m:
+        return None
+    return _which_to_index(m.group("which"))
+
+
+def is_first_result_phrase(text: str) -> bool:
+    return parse_result_index(text) == 1
+
+
+def is_ranked_result_phrase(text: str) -> bool:
+    return parse_result_index(text) is not None
 
 
 def text_matches_query(ocr_text: str, query: str) -> bool:
@@ -54,36 +107,17 @@ def text_matches_query(ocr_text: str, query: str) -> bool:
     if len(text_l) >= 5 and text_l in query_l:
         return True
     q_brands = set(distinctive_tokens(query_l))
-    t_brands = set(distinctive_tokens(text_l))
-    if q_brands and q_brands <= t_brands | set(text_l.split()):
-        if q_brands & set(re.findall(r"[a-z0-9]+", text_l)):
-            return True
     if q_brands and q_brands & set(re.findall(r"[a-z0-9]+", text_l)):
         return True
     return False
 
 
-def pick_first_search_result(
-    words: List[Dict[str, Any]],
-    width: int,
-    height: int,
-) -> Optional[Dict[str, Any]]:
-    """Return a box {x,y,w,h,label} for the first organic result title."""
-    if not words or width <= 0 or height <= 0:
-        return None
-    top_cut = max(int(height * 0.20), 170)
-    bot_cut = int(height * 0.90)
-    right_cut = int(width * 0.78)
-
+def _rows_from_words(words: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
     lines: Dict[Any, List[Dict[str, Any]]] = {}
     for item in words:
         y = int(item.get("y") or 0)
-        x = int(item.get("x") or 0)
-        if y < top_cut or y > bot_cut or x > right_cut:
-            continue
-        key = (item.get("block"), item.get("line"), y // 10)
+        key = (item.get("block"), item.get("line"), y // 12)
         lines.setdefault(key, []).append(item)
-
     ordered: List[Dict[str, Any]] = []
     for group in lines.values():
         group.sort(key=lambda i: int(i.get("x") or 0))
@@ -104,38 +138,209 @@ def pick_first_search_result(
             }
         )
     ordered.sort(key=lambda line: (line["y"], line["x"]))
+    return ordered
 
-    content: List[Dict[str, Any]] = []
-    for line in ordered:
-        text = line["text"]
-        if len(text) < 3:
-            continue
-        if _SKIP_LINE.search(text):
-            continue
-        content.append(line)
 
-    def as_box(line: Dict[str, Any]) -> Dict[str, Any]:
-        return {
-            "x": line["x"],
-            "y": line["y"],
-            "w": line["w"],
-            "h": line["h"],
-            "label": line["text"],
+def _looks_like_title(text: str) -> bool:
+    t = " ".join((text or "").split())
+    if len(t) < 4 or _URLISH.search(t) or _SKIP_LINE.search(t):
+        return False
+    words = t.split()
+    if len(words) > 12:
+        return False
+    return len(words) >= 2 or len(t) >= 8
+
+
+def _title_score(text: str) -> int:
+    score = 1
+    if _TITLE_HINT.search(text or ""):
+        score += 3
+    n = len((text or "").split())
+    if 2 <= n <= 6:
+        score += 2
+    if re.search(r"university of|colleges$|wikipedia", text or "", re.I):
+        score -= 1
+    return score
+
+
+def _as_box(line: Dict[str, Any], *, index: int = 0) -> Dict[str, Any]:
+    return {
+        "x": int(line["x"]),
+        "y": int(line["y"]),
+        "w": int(line["w"]),
+        "h": int(line["h"]),
+        "label": line.get("text") or line.get("label") or f"result {index}",
+        "index": index,
+    }
+
+
+def list_search_results(
+    words: List[Dict[str, Any]],
+    width: int,
+    height: int,
+    *,
+    extra_titles: Optional[Sequence[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """Return organic result titles top-to-bottom from the live screen."""
+    if width <= 0 or height <= 0:
+        return []
+    chrome_cut = 72
+    bot_cut = int(height * 0.92)
+    right_cut = int(width * 0.80)
+
+    rows = []
+    for line in _rows_from_words(words or []):
+        if line["y"] < chrome_cut or line["y"] > bot_cut or line["x"] > right_cut:
+            continue
+        if _SKIP_LINE.search(line["text"]):
+            continue
+        rows.append(line)
+
+    results: List[Dict[str, Any]] = []
+    used = set()
+
+    def add_title(line: Dict[str, Any]) -> None:
+        key = (round(line["y"] / 20), " ".join(line["text"].lower().split())[:40])
+        if key in used:
+            return
+        used.add(key)
+        results.append(_as_box(line, index=len(results) + 1))
+
+    urls = [i for i, row in enumerate(rows) if _URLISH.search(row["text"])]
+    for ui in urls:
+        url = rows[ui]
+        # Isolated URL in the search-box strip is not a result.
+        if url["y"] < 130 and not any(
+            _looks_like_title(rows[j]["text"]) and abs(rows[j]["y"] - url["y"]) < 70
+            for j in range(len(rows))
+            if j != ui
+        ):
+            continue
+        candidates = []
+        for j, row in enumerate(rows):
+            if j == ui or not _looks_like_title(row["text"]):
+                continue
+            dist = row["y"] - url["y"]
+            if abs(dist) > 90:
+                continue
+            # Prefer a title just below the URL (current Google) or just above (classic).
+            prefer = 0 if 0 <= dist <= 70 else (1 if -70 <= dist < 0 else 3)
+            candidates.append((_title_score(row["text"]) * 10 - prefer * 3 - abs(dist) // 10, row))
+        if candidates:
+            candidates.sort(key=lambda item: item[0], reverse=True)
+            add_title(candidates[0][1])
+        else:
+            add_title(url)
+
+    if not results:
+        for row in rows:
+            if _looks_like_title(row["text"]):
+                add_title(row)
+
+    for extra in extra_titles or []:
+        text = str(extra.get("label") or extra.get("text") or "").strip()
+        box = {
+            "text": text or "search result",
+            "x": int(extra.get("x") or 0),
+            "y": int(extra.get("y") or 0),
+            "w": int(extra.get("w") or extra.get("width") or 40),
+            "h": int(extra.get("h") or extra.get("height") or 18),
         }
+        if box["y"] < chrome_cut:
+            continue
+        add_title(box)
 
-    for i, line in enumerate(content):
-        if _URLISH.search(line["text"]):
-            for j in range(i - 1, -1, -1):
-                prev = content[j]
-                if _URLISH.search(prev["text"]):
-                    continue
-                if len(prev["text"].split()) >= 2 or len(prev["text"]) >= 8:
-                    return as_box(prev)
-            return as_box(line)
+    results.sort(key=lambda r: (r["y"], r["x"]))
+    for i, item in enumerate(results, start=1):
+        item["index"] = i
+    return results[:8]
 
-    for line in content:
-        if len(line["text"].split()) >= 2:
-            return as_box(line)
-    if content:
-        return as_box(content[0])
+
+def pick_search_result(
+    words: List[Dict[str, Any]],
+    width: int,
+    height: int,
+    index: int = 1,
+    *,
+    extra_titles: Optional[Sequence[Dict[str, Any]]] = None,
+) -> Optional[Dict[str, Any]]:
+    ranked = list_search_results(words, width, height, extra_titles=extra_titles)
+    if 1 <= int(index) <= len(ranked):
+        return ranked[int(index) - 1]
     return None
+
+
+def pick_first_search_result(
+    words: List[Dict[str, Any]],
+    width: int,
+    height: int,
+) -> Optional[Dict[str, Any]]:
+    return pick_search_result(words, width, height, index=1)
+
+
+def link_bands_from_frame(frame) -> List[Dict[str, Any]]:
+    """Find Google-style blue/cyan title rows (works in dark mode when OCR is weak)."""
+    try:
+        import numpy as np
+    except Exception:
+        return []
+    if frame is None:
+        return []
+    img = np.asarray(frame)
+    if img.ndim != 3 or img.shape[0] < 40:
+        return []
+    h, w = img.shape[:2]
+    r = img[:, :, 0].astype("int16")
+    g = img[:, :, 1].astype("int16")
+    b = img[:, :, 2].astype("int16")
+    # Dark-mode Google links (~#8ab4f8) and classic blue titles.
+    dark_mode = (b > 175) & (g > 130) & (r < 190) & (b > r + 20)
+    classic = (b > 150) & (r < 90) & (g < 150) & (b > g)
+    mask = dark_mode | classic
+    left = int(w * 0.06)
+    right = int(w * 0.72)
+    top = 90
+    bands: List[Dict[str, Any]] = []
+    y = top
+    while y < int(h * 0.88):
+        row = mask[y, left:right]
+        if int(row.sum()) > max(18, int((right - left) * 0.04)):
+            y1 = y
+            while y1 < h - 1 and int(mask[y1, left:right].sum()) > 10:
+                y1 += 1
+                if y1 - y > 36:
+                    break
+            height = max(14, y1 - y)
+            xs = []
+            for yy in range(y, min(h, y + height)):
+                cols = mask[yy, left:right]
+                if cols.any():
+                    found = cols.nonzero()[0]
+                    xs.append(int(found[0] + left))
+                    xs.append(int(found[-1] + left))
+            if xs:
+                x0, x1 = min(xs), max(xs)
+                if x1 - x0 >= 40:
+                    bands.append(
+                        {
+                            "x": x0,
+                            "y": y,
+                            "w": max(40, x1 - x0),
+                            "h": height,
+                            "label": "search result",
+                        }
+                    )
+            y = y1 + 8
+        else:
+            y += 2
+    # Merge bands that are stacked on the same result title.
+    merged: List[Dict[str, Any]] = []
+    for band in bands:
+        if merged and abs(band["y"] - (merged[-1]["y"] + merged[-1]["h"])) < 10:
+            prev = merged[-1]
+            prev["h"] = band["y"] + band["h"] - prev["y"]
+            prev["x"] = min(prev["x"], band["x"])
+            prev["w"] = max(prev["x"] + prev["w"], band["x"] + band["w"]) - prev["x"]
+        else:
+            merged.append(dict(band))
+    return merged[:8]

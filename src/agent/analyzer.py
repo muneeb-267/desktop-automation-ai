@@ -6,7 +6,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from src.agent.elements import ScreenElement, ScreenState
-from src.vision.search_result import pick_first_search_result
+from src.vision.search_result import link_bands_from_frame, list_search_results
 
 _BUTTON_WORDS = re.compile(
     r"\b(login|log in|sign in|signin|next|continue|submit|send|search|"
@@ -119,23 +119,29 @@ class ScreenAnalyzer:
                     source="OCR",
                 )
             )
-        first = pick_first_search_result(words, w, h)
-        if first:
-            elements.insert(
-                0,
+        extra = []
+        try:
+            extra = link_bands_from_frame(img)
+        except Exception:
+            extra = []
+        ranked_els: List[ScreenElement] = []
+        for hit in list_search_results(words, w, h, extra_titles=extra):
+            idx = int(hit.get("index") or 1)
+            ranked_els.append(
                 ScreenElement(
-                    id="ocr-first-result",
+                    id=f"ocr-result-{idx}",
                     type="link",
-                    text=str(first.get("label") or "first result"),
-                    role="first_result",
-                    x=int(first["x"]),
-                    y=int(first["y"]),
-                    width=int(first["w"]),
-                    height=int(first["h"]),
-                    confidence=0.88,
+                    text=str(hit.get("label") or f"result {idx}"),
+                    role=f"result_{idx}",
+                    x=int(hit["x"]),
+                    y=int(hit["y"]),
+                    width=int(hit["w"]),
+                    height=int(hit["h"]),
+                    confidence=0.9,
                     source="OCR",
-                ),
+                )
             )
+        elements = ranked_els + elements
         path = ""
         try:
             path = self.vision.save_capture(img, label="screen_state", boxes=[e.to_dict() for e in elements[:24]])

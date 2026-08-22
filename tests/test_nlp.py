@@ -132,6 +132,10 @@ def test_ambiguous_and_malformed():
     assert spoken.entities.get("element") == "__first_result__"
     assert spoken.entities.get("first_result") is True
 
+    second = engine.parse("click on the second result")
+    assert second.intent == "click_text"
+    assert second.entities.get("result_index") == 2
+
     nav = engine.parse("go to horizon.ucp.edu.pk")
     assert nav.intent == "open_url"
     assert "horizon" in str(nav.entities.get("url") or "")

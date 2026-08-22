@@ -215,7 +215,10 @@ class CommandPlanner:
             or s.entities.get("first_result")
             for s in planned
         )
-        if has_search and re.search(r"\b(first|top|1st)\s+(search\s+)?(result|link|hit)\b", lower) and not has_first:
+        if has_search and re.search(
+            r"\b(first|second|third|fourth|fifth|top|1st|2nd|3rd)\s+(search\s+)?(result|link|hit)\b",
+            lower,
+        ) and not has_first:
             add("inspect_screen", {"element": FIRST_RESULT_ELEMENT, "first_result": True}, kind="inspect")
             add("click_text", {"element": FIRST_RESULT_ELEMENT, "first_result": True}, kind="action")
             add("verify_screen", {"expect": "page_changed"}, kind="verify")

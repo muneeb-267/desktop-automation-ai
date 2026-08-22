@@ -7,7 +7,12 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.speech.wake import clean_spoken_command
-from src.vision.search_result import FIRST_RESULT_ELEMENT, is_first_result_phrase
+from src.vision.search_result import (
+    FIRST_RESULT_ELEMENT,
+    is_first_result_phrase,
+    is_ranked_result_phrase,
+    parse_result_index,
+)
 
 # Shared lazy handles so the app doesn't reload models repeatedly
 _SPACY_NLP = None
@@ -356,7 +361,12 @@ class NLPEngine:
             return "open_url", 0.86
         if re.search(r"\b(go to|visit|navigate to)\s+\S+", lower):
             return "open_url", 0.92
-        if re.search(r"\b(first|top|1st)\s+(search\s+)?(result|link|hit)\b", lower):
+        if re.search(
+            r"\b(first|second|third|fourth|fifth|top|1st|2nd|3rd|4th|5th|"
+            r"one|two|three|four|five|\d+(?:st|nd|rd|th)?)\s+"
+            r"(search\s+)?(result|link|hit)\b",
+            lower,
+        ):
             return "click_text", 0.94
         # Open file / folder / document before generic open_app
         if re.search(
@@ -460,14 +470,18 @@ class NLPEngine:
             )
             element = (m.group(1) if m else "").strip(" \"'")
             element = re.sub(r"^(?:on\s+)?(?:the\s+)?", "", element, flags=re.I).strip()
-            if is_first_result_phrase(text) or is_first_result_phrase(element):
-                entities["element"] = FIRST_RESULT_ELEMENT
-                entities["first_result"] = True
+            idx = parse_result_index(text) or parse_result_index(element)
+            if idx or is_ranked_result_phrase(text) or is_first_result_phrase(element):
+                entities["element"] = FIRST_RESULT_ELEMENT if idx == 1 else f"result {idx}"
+                entities["result_index"] = idx or 1
+                entities["first_result"] = (idx or 1) == 1
             else:
                 entities["element"] = element
-            if not entities.get("element") and is_first_result_phrase(text):
-                entities["element"] = FIRST_RESULT_ELEMENT
-                entities["first_result"] = True
+            if not entities.get("element") and is_ranked_result_phrase(text):
+                idx = parse_result_index(text) or 1
+                entities["element"] = FIRST_RESULT_ELEMENT if idx == 1 else f"result {idx}"
+                entities["result_index"] = idx
+                entities["first_result"] = idx == 1
             if intent == "click_button":
                 entities["element_type"] = "button"
         elif intent == "fill_form":

@@ -13,7 +13,11 @@ from src.vision.ocr_text import distinctive_tokens, normalize_ocr_query, normali
 from src.vision.search_result import (
     FIRST_RESULT_ELEMENT,
     is_first_result_phrase,
-    pick_first_search_result,
+    is_ranked_result_phrase,
+    link_bands_from_frame,
+    list_search_results,
+    parse_result_index,
+    pick_search_result,
     text_matches_query,
 )
 
@@ -197,8 +201,8 @@ class VisionEngine:
         query_l = normalize_ocr_query(query)
         if not query_l:
             return DetectionResult(found=False, label=query, method="ocr")
-        if is_first_result_phrase(query_l):
-            return self.find_first_search_result(img)
+        if is_ranked_result_phrase(query_l) or is_first_result_phrase(query_l):
+            return self.find_ranked_search_result(parse_result_index(query_l) or 1, img)
 
         words = self._ocr_words(img)
         boxes = list(words)
@@ -264,13 +268,23 @@ class VisionEngine:
         return DetectionResult(found=False, label=query, method="ocr", boxes=boxes)
 
     def find_first_search_result(self, frame: Optional[np.ndarray] = None) -> DetectionResult:
+        return self.find_ranked_search_result(1, frame)
+
+    def find_ranked_search_result(
+        self, index: int = 1, frame: Optional[np.ndarray] = None
+    ) -> DetectionResult:
         img = frame if frame is not None else self.capture_screen()
         words = self._ocr_words(img)
         h, w = img.shape[:2]
-        hit = pick_first_search_result(words, w, h)
+        extra = link_bands_from_frame(img)
+        ranked = list_search_results(words, w, h, extra_titles=extra)
+        hit = pick_search_result(words, w, h, index=index, extra_titles=extra)
         if not hit:
             return DetectionResult(
-                found=False, label="first result", method="first-result", boxes=list(words)
+                found=False,
+                label=f"result {index}",
+                method="search-result",
+                boxes=list(words) + list(ranked),
             )
         return DetectionResult(
             found=True,
@@ -278,10 +292,10 @@ class VisionEngine:
             y=int(hit["y"] + hit["h"] // 2),
             width=int(hit["w"]),
             height=int(hit["h"]),
-            label=str(hit.get("label") or "first result"),
-            method="first-result",
-            confidence=0.86,
-            boxes=list(words) + [hit],
+            label=str(hit.get("label") or f"result {index}"),
+            method="search-result",
+            confidence=0.9,
+            boxes=list(words) + list(ranked),
         )
 
     def find_template(
@@ -339,8 +353,9 @@ class VisionEngine:
         frame: Optional[np.ndarray] = None,
     ) -> DetectionResult:
         img = frame if frame is not None else self.capture_screen()
-        if is_first_result_phrase(element) or element == FIRST_RESULT_ELEMENT:
-            return self.find_first_search_result(img)
+        idx = parse_result_index(element)
+        if element == FIRST_RESULT_ELEMENT or is_ranked_result_phrase(element) or idx:
+            return self.find_ranked_search_result(idx or 1, img)
         if prefer == "template":
             hit = self.find_template(element, img)
             if hit.found:

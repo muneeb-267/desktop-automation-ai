@@ -19,7 +19,11 @@ from src.agent.logs import agent_log
 from src.agent.matcher import match_elements
 from src.agent.sensitive import history_line_for_type, is_sensitive_request
 from src.vision.engine import VisionEngine
-from src.vision.search_result import FIRST_RESULT_ELEMENT, is_first_result_phrase
+from src.vision.search_result import (
+    FIRST_RESULT_ELEMENT,
+    is_first_result_phrase,
+    parse_result_index,
+)
 from src.workflows.service import WorkflowService
 
 
@@ -473,6 +477,68 @@ class AutomationPipeline:
         assert last_exc is not None
         raise last_exc
 
+    def _click_ranked_result(self, index: int, frame, result: Dict[str, Any]) -> Dict[str, Any]:
+        emit = getattr(self, "_status_cb", None) or (lambda _m: None)
+        detection = self.vision.find_ranked_search_result(index, frame)
+        boxes = list(detection.boxes or [])
+        result["detection"] = {
+            "found": detection.found,
+            "x": detection.x,
+            "y": detection.y,
+            "width": detection.width,
+            "height": detection.height,
+            "method": detection.method,
+            "confidence": detection.confidence,
+            "label": detection.label,
+        }
+        result["boxes"] = boxes
+        visible = [
+            {
+                "text": str(b.get("label") or b.get("text") or ""),
+                "x": b.get("x"),
+                "y": b.get("y"),
+                "width": b.get("w") or b.get("width"),
+                "height": b.get("h") or b.get("height"),
+                "score": 0.8,
+            }
+            for b in boxes
+            if b.get("index") or b.get("label")
+        ]
+        visible = [v for v in visible if v.get("text")][:6]
+        if not detection.found:
+            if visible:
+                result["needs_confirm"] = True
+                result["confirm_prompt"] = (
+                    f"I can see {len(visible)} result(s) on this screen. "
+                    f"Which one should I click?"
+                )
+                result["candidates"] = visible
+                return result
+            raise RuntimeError(
+                "I cannot see ranked search results on the current screen. "
+                "Make sure the Google results are visible, then say "
+                "click the first result or click Login With Odoo."
+            )
+        emit(f"◆highlight {detection.x - detection.width // 2} {detection.y - detection.height // 2} {detection.width} {detection.height}")
+        emit(f"Clicking result {index}: {detection.label}…")
+        agent_log(f"Candidate: {detection.label}")
+        agent_log(f"Confidence: {detection.confidence:.2f}")
+        clicked = self.automation.click(detection.x, detection.y)
+        time.sleep(0.4)
+        after = self.vision.capture_screen()
+        check = self.vision.frame_changed(frame, after, threshold=0.01)
+        result["automation"] = clicked
+        result["verification"] = check
+        result["capture_path"] = self.vision.save_capture(
+            frame, label=f"result_{index}", boxes=boxes[-8:]
+        )
+        if not check.get("changed") and not self.automation.dry_run:
+            result["needs_retry"] = True
+            result["error"] = (
+                f"Result {index} ({detection.label}) didn't appear to open. Should I try again?"
+            )
+        return result
+
     def _click_element(self, element: str, entities: Dict[str, Any]) -> Dict[str, Any]:
         result: Dict[str, Any] = {"intent": "click_button", "entities": entities}
         if entities.get("x") is not None and entities.get("y") is not None:
@@ -480,10 +546,14 @@ class AutomationPipeline:
             result["automation"] = self.automation.click(x, y)
             return result
         emit = getattr(self, "_status_cb", None) or (lambda _m: None)
-        first = bool(entities.get("first_result")) or is_first_result_phrase(element)
-        if first:
+        result_index = int(entities.get("result_index") or 0) or parse_result_index(element or "")
+        first = bool(entities.get("first_result")) or is_first_result_phrase(element) or result_index == 1
+        if result_index:
+            emit(f"Looking at the current screen for result {result_index}…")
+        elif first:
+            result_index = 1
             element = FIRST_RESULT_ELEMENT
-            emit("Looking for the first search result…")
+            emit("Looking at the current screen for the first search result…")
         else:
             emit(f"Looking for “{element}” on screen…")
         time.sleep(0.55)
@@ -493,6 +563,8 @@ class AutomationPipeline:
             raise RuntimeError(
                 f"Screen capture failed: {self.vision.last_capture_error or 'unknown error'}"
             )
+        if result_index:
+            return self._click_ranked_result(result_index, frame, result)
         prefer = "template" if entities.get("prefer") == "template" else "ocr"
         if entities.get("skip_match"):
             detection = self.vision.locate(element, prefer=prefer, frame=frame)
