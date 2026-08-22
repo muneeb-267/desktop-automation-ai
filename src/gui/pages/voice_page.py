@@ -56,9 +56,10 @@ class VoiceCommandPage(QWidget):
         t = QLabel("Voice Command")
         t.setObjectName("pageTitle")
         s = QLabel(
-            "DAI uses the Google/Chrome mic. It stays asleep until you say “DAI wakeup”, "
-            "then one command. Half-heard speech shows “Do you mean this?”. "
-            "Say “DAI sleep” to sleep. Hotkey: Ctrl+Space"
+            "DAI uses the Google/Chrome mic. Say “DAI wakeup”, then keep speaking "
+            "steps. DAI looks at the current screen, confirms only when unsure, "
+            "and waits for the next command. Say “done” or “DAI sleep” to finish. "
+            "Hotkey: Ctrl+Space"
         )
         s.setObjectName("pageSubtitle")
         s.setWordWrap(True)
@@ -84,7 +85,7 @@ class VoiceCommandPage(QWidget):
         self.status.setAlignment(Qt.AlignCenter)
 
         hint = QLabel(
-            "DAI wakeup · Click Login · Do you mean this? · DAI sleep"
+            "DAI wakeup · Open Chrome · Click Login · What’s next? · done"
         )
         hint.setObjectName("pageSubtitle")
         hint.setAlignment(Qt.AlignCenter)
@@ -179,7 +180,7 @@ class VoiceCommandPage(QWidget):
         show_dai.clicked.connect(self.show_dai_requested.emit)
         rl.addWidget(show_dai)
         rl.addStretch()
-        foot = QLabel("v0.2.0")
+        foot = QLabel("v0.4.0")
         foot.setObjectName("footerLabel")
         rl.addWidget(foot)
 

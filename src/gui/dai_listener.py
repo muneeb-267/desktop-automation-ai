@@ -13,8 +13,6 @@ from src.speech.wake import (
     classify_utterance,
     is_wake_phrase,
     is_wakeup_followup,
-    looks_complete_command,
-    looks_complete_wake,
 )
 
 
@@ -151,17 +149,12 @@ class DaiMicThread(QThread):
             self.status.emit("Offline mic on — say DAI wakeup")
             last_partial = ""
             last_emitted = ""
-            stable_text = ""
-            stable_n = 0
             last_session = False
             while not self._stop:
                 session = self._session_active
-                # Do not rebuild recs when the session *starts* — that drops
-                # "DAI open chrome" still sitting in the free-form decoder.
                 if last_session and not session:
                     rec_wake, rec_cmd = make_recs()
                     last_partial = ""
-                    stable_n = 0
                     last_emitted = ""
                 last_session = session
 
@@ -207,31 +200,8 @@ class DaiMicThread(QThread):
                     self.heard.emit(chosen)
                     self.heard_alts.emit(chosen, alts)
                     last_partial = ""
-                    stable_n = 0
                     rec_wake, rec_cmd = make_recs()
                     continue
-
-                partial = cmd_partial or wake_partial
-                should_fire = False
-                if session and partial and looks_complete_command(partial):
-                    should_fire = True
-                elif (not session) and partial and looks_complete_wake(partial):
-                    should_fire = True
-                if should_fire and partial:
-                    if partial == stable_text:
-                        stable_n += 1
-                    else:
-                        stable_text = partial
-                        stable_n = 1
-                    if stable_n >= 2 and partial.lower() != last_emitted.lower():
-                        last_emitted = partial
-                        self.heard.emit(partial)
-                        self.heard_alts.emit(partial, [])
-                        rec_wake, rec_cmd = make_recs()
-                        stable_n = 0
-                        last_partial = ""
-                else:
-                    stable_n = 0
         except Exception as exc:
             self.failed.emit(friendly_mic_error(exc))
         finally:

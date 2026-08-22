@@ -43,6 +43,8 @@ def test_sleep_phrase():
     assert is_sleep_phrase("DAI close now")
     assert is_sleep_phrase("go to sleep", session_active=True)
     assert not is_sleep_phrase("open chrome")
+    assert not is_sleep_phrase("DAI stop", session_active=True)
+    assert not is_sleep_phrase("stop", session_active=True)
 
 
 def test_close_phrase():
@@ -50,6 +52,7 @@ def test_close_phrase():
     assert is_close_phrase("die close now")
     assert is_close_phrase("close now", session_active=True)
     assert not is_close_phrase("close the window")
+    assert not is_close_phrase("DAI stop", session_active=True)
 
 
 def test_classify_session():

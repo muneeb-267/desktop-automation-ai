@@ -44,7 +44,7 @@ _HTML = """<!DOCTYPE html>
 <body>
   <div class="card">
     <h1>DAI · Google mic</h1>
-    <p>Keep this window open. Chrome hears you even while DAI sleeps.</p>
+    <p>Keep this window open. Chrome hears you while DAI sleeps and after wakeup.</p>
     <div id="status">Starting…</div>
     <div id="heard">Say “DAI wakeup”</div>
     <button id="retry" type="button">Start mic</button>
@@ -253,7 +253,7 @@ class DaiChromeThread(QThread):
                 if kind == "ready" and not self._ready_emitted:
                     self._ready_emitted = True
                     self.engine_ready.emit()
-                    self.status.emit("Google mic ready — sleeping until DAI wakeup")
+                    self.status.emit("Google mic ready — say DAI wakeup, then keep speaking")
                 continue
             if kind == "partial":
                 text = " ".join(str(item.get("text") or "").split())
@@ -390,8 +390,11 @@ class DaiChromeThread(QThread):
         )
 
 
+_DAI_CHROME_RECTS = {}
+
+
 def set_dai_chrome_minimized(minimized: bool) -> int:
-    """Minimize the DAI Google Mic window so clicks hit the real page underneath."""
+    """Park the DAI Google Mic window off-screen so Web Speech keeps running."""
     if platform_name() != "windows":
         return 0
     try:
@@ -401,14 +404,13 @@ def set_dai_chrome_minimized(minimized: bool) -> int:
         return 0
 
     user32 = ctypes.windll.user32
-    SW_MINIMIZE = 6
-    SW_RESTORE = 9
+    SWP_NOSIZE = 0x0001
+    SWP_NOZORDER = 0x0004
+    RECT = wintypes.RECT
     found = []
 
     @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
     def _enum(hwnd, _lp):
-        if not user32.IsWindowVisible(hwnd):
-            return True
         length = user32.GetWindowTextLengthW(hwnd)
         if length <= 0:
             return True
@@ -420,9 +422,15 @@ def set_dai_chrome_minimized(minimized: bool) -> int:
         return True
 
     user32.EnumWindows(_enum, 0)
-    cmd = SW_MINIMIZE if minimized else SW_RESTORE
     for hwnd in found:
-        user32.ShowWindow(hwnd, cmd)
+        if minimized:
+            rect = RECT()
+            if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+                _DAI_CHROME_RECTS[int(hwnd)] = (rect.left, rect.top)
+            user32.SetWindowPos(hwnd, 0, -640, -360, 0, 0, SWP_NOSIZE | SWP_NOZORDER)
+        else:
+            pos = _DAI_CHROME_RECTS.pop(int(hwnd), (12, 720))
+            user32.SetWindowPos(hwnd, 0, int(pos[0]), int(pos[1]), 0, 0, SWP_NOSIZE | SWP_NOZORDER)
     return len(found)
 
 

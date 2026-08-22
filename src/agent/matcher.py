@@ -1,0 +1,124 @@
+"""Rank on-screen elements against a spoken target. Never pick randomly among logins."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from difflib import SequenceMatcher
+from typing import List, Sequence
+
+from src.agent.elements import ScreenElement
+
+HIGH = 0.90
+MEDIUM = 0.65
+
+_SYNONYMS = {
+    "login": ("login", "log in", "sign in", "signin", "logon"),
+    "microsoft": ("microsoft", "micro soft", "ms", "office 365", "azure"),
+    "email": ("email", "e-mail", "mail", "username", "user name", "account"),
+    "password": ("password", "passcode", "passwd"),
+    "next": ("next", "continue", "proceed"),
+    "submit": ("submit", "send", "confirm"),
+    "search": ("search", "google", "find"),
+}
+
+
+@dataclass
+class RankedMatch:
+    element: ScreenElement
+    score: float
+    reason: str = ""
+
+
+@dataclass
+class MatchResult:
+    query: str
+    matches: List[RankedMatch] = field(default_factory=list)
+    ambiguous: bool = False
+    message: str = ""
+
+    @property
+    def best(self) -> RankedMatch | None:
+        return self.matches[0] if self.matches else None
+
+    @property
+    def confidence(self) -> float:
+        return self.best.score if self.best else 0.0
+
+    @property
+    def band(self) -> str:
+        c = self.confidence
+        if c >= HIGH:
+            return "high"
+        if c >= MEDIUM:
+            return "medium"
+        return "low"
+
+
+def _tokens(text: str) -> List[str]:
+    return re.findall(r"[a-z0-9]+", (text or "").lower())
+
+
+def _expand(token: str) -> set:
+    out = {token}
+    for _key, vals in _SYNONYMS.items():
+        if token in vals or token == _key:
+            out.update(vals)
+            out.add(_key)
+    return out
+
+
+def score_element(query: str, element: ScreenElement) -> float:
+    q = " ".join((query or "").lower().split())
+    q = re.sub(r"^(click|tap|press|open)\s+(on\s+)?(the\s+)?", "", q).strip()
+    text = " ".join((element.text or "").lower().split())
+    if not q or not text:
+        return 0.0
+    if q == text:
+        return 0.99
+    if q in text:
+        return 0.96 if len(q) >= 4 else 0.82
+    if text in q and len(text) >= 4:
+        return round(0.70 + 0.25 * (len(text) / max(1, len(q))), 3)
+    ratio = SequenceMatcher(None, q, text).ratio()
+    q_toks = _tokens(q)
+    t_toks = set(_tokens(text))
+    overlap = 0
+    for tok in q_toks:
+        family = _expand(tok)
+        if family & t_toks:
+            overlap += 1
+    cover = overlap / max(1, len(q_toks))
+    score = max(ratio, cover * 0.92)
+    if element.type in ("button", "link") and any(t in q for t in ("click", "button", "login")):
+        score = min(1.0, score + 0.03)
+    if element.type == "input" and any(t in q for t in ("email", "password", "field", "type", "username")):
+        score = min(1.0, score + 0.04)
+    return round(float(score), 3)
+
+
+def match_elements(query: str, elements: Sequence[ScreenElement]) -> MatchResult:
+    q = " ".join((query or "").split())
+    ranked = []
+    for el in elements:
+        s = score_element(q, el)
+        if s >= 0.35:
+            ranked.append(RankedMatch(element=el, score=s, reason=el.text))
+    ranked.sort(key=lambda m: (m.score, len(m.element.text or "")), reverse=True)
+    result = MatchResult(query=q, matches=ranked[:6])
+    if len(ranked) >= 2 and ranked[0].score >= MEDIUM:
+        a, b = ranked[0], ranked[1]
+        same_family = SequenceMatcher(None, a.element.text.lower(), b.element.text.lower()).ratio() > 0.45
+        loginish = "login" in q.lower() or "sign" in q.lower()
+        if loginish and same_family and (a.score - b.score) < 0.12 and b.score >= 0.55:
+            result.ambiguous = True
+            result.message = (
+                f"I found multiple login buttons. Which one do you mean? "
+                f"{a.element.text}  ·  {b.element.text}"
+            )
+        elif (a.score - b.score) < 0.06 and b.score >= 0.70:
+            result.ambiguous = True
+            result.message = f"I found {len(ranked[:3])} possible matches."
+    if result.best and result.band == "low":
+        result.message = "I'm not confident which element you mean."
+    return result

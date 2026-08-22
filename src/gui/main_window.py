@@ -49,6 +49,14 @@ from src.gui.styles import get_app_style
 from src.gui.window_fit import apply_standard_window_chrome, fit_to_screen
 from src.gui.workflow_editor import WorkflowEditorDialog
 from src.gui.workers import CommandWorker, SpeechWorker, WorkflowWorker
+from src.agent.finalizer import SpeechFinalizer
+from src.agent.interpreter import CommandInterpreter
+from src.agent.logs import agent_log
+from src.agent.normalize import normalize_command
+from src.agent.safety_gate import must_confirm
+from src.agent.sensitive import history_line_for_type, is_sensitive_request
+from src.agent.session import PendingConfirm, TaskManager
+from src.gui.highlight_overlay import HighlightOverlay
 from src.nlp.clarify import clarify_heard
 from src.speech.dai_chrome import DaiChromeThread, chrome_available, set_dai_chrome_minimized
 from src.speech.wake import (
@@ -106,6 +114,10 @@ class MainWindow(QMainWindow):
         self._dai_last_cmd = ""
         self._dai_last_at = 0.0
         self._dai_engine = "google"
+        self.tasks = TaskManager()
+        self.interpreter = CommandInterpreter()
+        self._speech_finalizer = SpeechFinalizer()
+        self._highlight = HighlightOverlay()
         self._nav_buttons: Dict[str, QPushButton] = {}
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
@@ -128,6 +140,9 @@ class MainWindow(QMainWindow):
         self._dai_prime_timer = QTimer(self)
         self._dai_prime_timer.setSingleShot(True)
         self._dai_prime_timer.timeout.connect(self._dai_clear_prime)
+        self._dai_final_timer = QTimer(self)
+        self._dai_final_timer.setSingleShot(True)
+        self._dai_final_timer.timeout.connect(self._flush_dai_final)
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -530,7 +545,7 @@ class MainWindow(QMainWindow):
         self._command_worker = CommandWorker(
             self.pipeline, text, self.user["user_id"], source=source, parent=self
         )
-        self._command_worker.status.connect(self.page_voice.set_status_message)
+        self._command_worker.status.connect(self._on_live_status)
         self._command_worker.status.connect(self.page_agent.mark_status)
         self._command_worker.failed.connect(lambda m: self.page_voice.set_status_message(f"✗ {m}"))
         self._command_worker.finished_ok.connect(self._on_command_done)
@@ -579,17 +594,34 @@ class MainWindow(QMainWindow):
         if live and self._dai_queue:
             nxt = self._dai_queue.pop(0)
             QTimer.singleShot(80, lambda: self._run_command(nxt, source="voice", live_desktop=True))
-        elif live:
+            return
+        if live and result.get("needs_secret"):
+            self._prompt_secret_and_type()
+            return
+        if live and result.get("needs_confirm"):
+            self._show_element_confirm(result)
+            return
+        if live:
+            ok = bool(result.get("ok"))
+            spoken = self._dai_last_cmd
+            safe = history_line_for_type(sensitive=is_sensitive_request(spoken)) if is_sensitive_request(spoken) else (
+                f"{'Completed' if ok else 'Failed'}: {spoken}"
+            )
+            self.tasks.ensure()
+            self.tasks.record(safe, ok=ok)
+            self._remember_screen(result)
+            self.tasks.waiting_for_next()
+            self.page_agent.set_task_history(self.tasks.session.history_lines() if self.tasks.session else [])
             if result.get("dry_run"):
-                self._put_dai_to_sleep(
-                    "Dry-run only — nothing was clicked. Turn off Dry-run in Settings."
-                )
-            elif result.get("ok"):
-                self._put_dai_to_sleep("Done. Sleeping — say DAI wakeup")
+                msg = "Dry-run only — turn off Dry-run in Settings. What's next?"
+            elif ok:
+                msg = "Done. What's next?"
             else:
-                self._put_dai_to_sleep(
-                    (result.get("error") or "Click failed")[:80] + " — say DAI wakeup"
-                )
+                msg = (result.get("error") or "That didn't work.")[:80] + " What's next?"
+            if self._dai_overlay:
+                self._dai_overlay.set_mode("active", msg)
+            self._arm_dai_idle()
+            agent_log(f"Verification: {'SUCCESS' if ok else 'FAIL'}")
 
     def _stop_workers(self) -> None:
         self.pipeline.request_stop("Stopped by user")
@@ -757,11 +789,14 @@ class MainWindow(QMainWindow):
     def _emergency_stop(self) -> None:
         self.pipeline.request_stop("User requested emergency stop.")
         self._stop_workers()
+        self.tasks.cancel("Emergency stop")
         self.showNormal()
+        set_dai_chrome_minimized(False)
         self.toast.show("🛑 AUTOMATION STOPPED", "safety")
         self.page_agent.set_status("🛑 Emergency stop — remaining actions cancelled.")
         if self._dai_overlay:
-            self._dai_overlay.set_mode("sleep" if not self._dai_active else "active", "Stopped")
+            self._dai_overlay.show()
+            self._dai_overlay.set_mode("active" if self._dai_active else "sleep", "Stopped. What's next?")
 
     def _maybe_setup_wizard(self) -> None:
         conf = self.conf_repo.get_map(self.user["user_id"])
@@ -825,6 +860,9 @@ class MainWindow(QMainWindow):
         self._dai_overlay.retry_requested.connect(self._restart_dai_listener)
         self._dai_overlay.tap_requested.connect(self._dai_tap_wake)
         self._dai_overlay.confirm_requested.connect(self._on_dai_confirm)
+        self._dai_overlay.stop_requested.connect(self._emergency_stop)
+        self._dai_overlay.yes_requested.connect(self._on_element_yes)
+        self._dai_overlay.no_requested.connect(self._on_element_no)
         self._dai_overlay.place_corner()
 
     def _start_dai_listener(self) -> None:
@@ -869,9 +907,9 @@ class MainWindow(QMainWindow):
         self._dai_engine = "google"
         self._put_dai_to_sleep("Sleeping — say DAI wakeup")
         self.page_voice.set_engine_label(
-            "Engine: DAI Google mic — say DAI wakeup · then a command · then DAI sleeps"
+            "Engine: DAI Google mic — say DAI wakeup, then keep speaking steps until done"
         )
-        self.toast.show("DAI is sleeping. Say DAI wakeup when you need it.", "info")
+        self.toast.show("DAI is sleeping. Say DAI wakeup, then keep speaking steps.", "info")
 
     def _on_dai_chrome_fail(self, message: str) -> None:
         if self._dai_thread is not None:
@@ -941,6 +979,28 @@ class MainWindow(QMainWindow):
         self._on_dai_final(text, [])
 
     def _on_dai_final(self, text: str, alternatives: list | None = None) -> None:
+        raw = " ".join((text or "").split())
+        if not raw:
+            return
+        released = self._speech_finalizer.feed_final(raw, list(alternatives or []))
+        if released:
+            self._dispatch_dai_final(released[0], released[1])
+            return
+        if self._dai_overlay and self._speech_finalizer.pending():
+            self._dai_overlay.set_mode(
+                "active" if self._dai_active else "sleep",
+                f"Hearing: {self._speech_finalizer.held}",
+            )
+        self._dai_final_timer.start(self._speech_finalizer.remaining_ms())
+
+    def _flush_dai_final(self) -> None:
+        released = self._speech_finalizer.take_due()
+        if released:
+            self._dispatch_dai_final(released[0], released[1])
+        elif self._speech_finalizer.pending():
+            self._dai_final_timer.start(self._speech_finalizer.remaining_ms())
+
+    def _dispatch_dai_final(self, text: str, alternatives: list | None = None) -> None:
         now = time.monotonic()
         raw = " ".join((text or "").split())
         if not raw:
@@ -948,6 +1008,18 @@ class MainWindow(QMainWindow):
         alts = list(alternatives or [])
         if self._dai_overlay:
             self._dai_overlay.hint.setText(f"Heard: {raw}")
+        key = normalize_command(raw).lower()
+        if self._dai_active and key in (
+            "stop",
+            "dai stop",
+            "stop now",
+            "dai stop now",
+            "cancel",
+            "cancel task",
+            "emergency stop",
+        ):
+            self._emergency_stop()
+            return
 
         if not self._dai_active:
             if is_wakeup_phrase(raw) or (
@@ -980,12 +1052,15 @@ class MainWindow(QMainWindow):
             self.showMinimized()
             if self._dai_overlay:
                 self._dai_overlay.show()
-            self._put_dai_to_sleep("Minimized. Sleeping — say DAI wakeup")
+                self._dai_overlay.set_mode("active", "Minimized. What's next?")
+            self._arm_dai_idle()
             return
         if kind == "restore":
             self.showNormal()
             self.raise_()
-            self._put_dai_to_sleep("Restored. Sleeping — say DAI wakeup")
+            if self._dai_overlay:
+                self._dai_overlay.set_mode("active", "Restored. What's next?")
+            self._arm_dai_idle()
             return
         if kind == "repeat":
             if self._dai_last_cmd:
@@ -1002,24 +1077,173 @@ class MainWindow(QMainWindow):
         if kind == "command" and command:
             self._handle_dai_command(command, alts)
 
+    def _on_live_status(self, message: str) -> None:
+        if (message or "").startswith("◆highlight "):
+            parts = message.split()
+            try:
+                self._highlight.show_box(int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]))
+            except (TypeError, ValueError, IndexError):
+                pass
+            return
+        self.page_voice.set_status_message(message)
+        if self._dai_overlay and self._dai_active and "Analyzing" in (message or ""):
+            self._dai_overlay.set_mode("analyze", message[:80])
+
     def _handle_dai_command(self, text: str, alternatives: list | None = None) -> None:
-        spoken = clean_spoken_command(text)
+        spoken = clean_spoken_command(normalize_command(text))
         if not spoken:
             return
-        result = clarify_heard(spoken, alternatives or [])
-        if result.needed and result.suggestions:
+        agent_log(f'Voice: "{spoken}"')
+        interp = self.interpreter.interpret(spoken, is_final=True, tasks=self.tasks)
+        if interp.stop:
+            self._emergency_stop()
+            return
+        if interp.end_task:
+            self.tasks.complete("Task completed.")
+            self.page_agent.set_task_history(self.tasks.session.history_lines() if self.tasks.session else [])
+            self._put_dai_to_sleep("Task completed. Say DAI wakeup")
+            return
+        if self.tasks.session and self.tasks.session.pending:
+            low = spoken.lower()
+            if low in ("yes", "yeah", "yep", "do it", "click it"):
+                self._on_element_yes()
+                return
+            if low in ("no", "nope", "wrong", "try again"):
+                self._on_element_no()
+                return
+            if "second" in low or "other" in low:
+                cands = self.tasks.session.pending.candidates
+                if len(cands) >= 2:
+                    self._click_candidate(cands[1])
+                    return
+        if interp.start_task and all(a.type in ("START_TASK",) for a in interp.actions):
+            self.tasks.start(spoken)
+            if self._dai_overlay:
+                self._dai_overlay.set_mode("active", "Okay. Tell me what to do first.")
+            self.page_agent.set_task_history(self.tasks.session.history_lines())
+            self._arm_dai_idle()
+            return
+        if interp.reference and interp.actions:
+            tgt = interp.actions[0].target or {}
+            if tgt.get("x") is not None:
+                self._click_candidate(tgt)
+                return
+        risky, prompt = must_confirm(spoken)
+        if risky:
+            self.tasks.ensure()
+            self.tasks.set_pending(
+                PendingConfirm(kind="safety", prompt=prompt, spoken=spoken, action={"text": spoken})
+            )
+            if self._dai_overlay:
+                self._dai_overlay.show_element_confirm(prompt, ["Yes, proceed", "No"])
             self._dai_awaiting_confirm = True
-            self._dai_sleep_timer.start(16000)
+            return
+        result = clarify_heard(spoken, alternatives or [])
+        if result.needed and result.suggestions and not interp.actions:
+            self._dai_awaiting_confirm = True
+            self._dai_sleep_timer.start(20000)
             if self._dai_overlay:
                 self._dai_overlay.show_clarify(result.heard, result.suggestions)
             self.page_agent.show_clarify(result.heard, result.suggestions)
-            self.page_agent.set_status(f"Do you mean this? Heard: {result.heard}")
-            self.page_voice.set_status_message(
-                f"Half-heard: {result.heard} — pick “Do you mean this?” on the DAI window"
-            )
-            self._show_page("agent")
             return
+        self.tasks.ensure(spoken)
+        self.tasks.set_status("EXECUTING")
+        agent_log(f"Intent: {(interp.actions[0].type if interp.actions else 'COMMAND')}")
         self._run_command(spoken, source="voice", live_desktop=True)
+
+    def _show_element_confirm(self, result: dict) -> None:
+        prompt = str(result.get("confirm_prompt") or "Do you mean this?")
+        cands = list(result.get("candidates") or [])
+        self.tasks.ensure()
+        self.tasks.set_pending(
+            PendingConfirm(kind="element", prompt=prompt, spoken=self._dai_last_cmd, candidates=cands)
+        )
+        labels = [str(c.get("text") or "") for c in cands if c.get("text")]
+        if self._dai_overlay:
+            self._dai_overlay.show()
+            self._dai_overlay.show_element_confirm(prompt, labels)
+        if cands:
+            c = cands[0]
+            try:
+                self._highlight.show_box(int(c["x"]), int(c["y"]), int(c.get("width") or 40), int(c.get("height") or 20), ms=2400)
+            except Exception:
+                pass
+        self.page_agent.show_clarify(prompt, labels)
+        self._dai_awaiting_confirm = True
+        self._arm_dai_idle()
+
+    def _on_element_yes(self) -> None:
+        pending = self.tasks.session.pending if self.tasks.session else None
+        self._dai_awaiting_confirm = False
+        if self._dai_overlay:
+            self._dai_overlay.clear_clarify()
+        if not pending:
+            return
+        if pending.kind == "safety" and pending.action.get("text"):
+            self.tasks.set_pending(None)
+            self._run_command(str(pending.action["text"]), source="voice", live_desktop=True)
+            return
+        if pending.candidates:
+            self._click_candidate(pending.candidates[0])
+
+    def _on_element_no(self) -> None:
+        self._dai_awaiting_confirm = False
+        self.tasks.set_pending(None)
+        if self._dai_overlay:
+            self._dai_overlay.clear_clarify()
+            self._dai_overlay.set_mode("active", "Okay — say the exact label.")
+        self._arm_dai_idle()
+
+    def _click_candidate(self, cand: dict) -> None:
+        self.tasks.set_pending(None)
+        self._dai_awaiting_confirm = False
+        if self._dai_overlay:
+            self._dai_overlay.clear_clarify()
+            self._dai_overlay.hide_for_action()
+        set_dai_chrome_minimized(True)
+        self.showMinimized()
+        QApplication.processEvents()
+        time.sleep(0.25)
+        try:
+            x = int(cand.get("x") or 0)
+            y = int(cand.get("y") or 0)
+            w = int(cand.get("width") or 0)
+            h = int(cand.get("height") or 0)
+            self._highlight.show_box(x, y, w or 40, h or 20, ms=400)
+            self.pipeline.automation.capture_region = dict(getattr(self.pipeline.vision, "last_region", {}) or {})
+            self.pipeline.automation.click(x + max(w, 8) // 2, y + max(h, 8) // 2)
+            self.tasks.record(f"Clicked {cand.get('text') or 'element'}", ok=True)
+            self.tasks.waiting_for_next()
+        except Exception as exc:
+            self.tasks.record(f"Click failed: {exc}", ok=False)
+        set_dai_chrome_minimized(False)
+        if self._dai_overlay:
+            self._dai_overlay.show_after_action()
+            self._dai_overlay.set_mode("active", "Done. What's next?")
+        self.page_agent.set_task_history(self.tasks.session.history_lines() if self.tasks.session else [])
+        self._arm_dai_idle()
+
+    def _prompt_secret_and_type(self) -> None:
+        dlg = QInputDialog(self)
+        dlg.setWindowTitle("Secure input")
+        dlg.setLabelText("Type the secret here. DAI will not log it.")
+        dlg.setTextEchoMode(QLineEdit.Password)
+        if dlg.exec_() != QInputDialog.Accepted:
+            if self._dai_overlay:
+                self._dai_overlay.set_mode("active", "Cancelled secret. What's next?")
+            return
+        secret = dlg.textValue()
+        if not secret:
+            return
+        self.showMinimized()
+        QApplication.processEvents()
+        time.sleep(0.2)
+        self.pipeline.automation.type_text(secret)
+        self.tasks.record(history_line_for_type(sensitive=True), ok=True)
+        self.tasks.waiting_for_next()
+        if self._dai_overlay:
+            self._dai_overlay.set_mode("active", "Entered secret. What's next?")
+        self._arm_dai_idle()
 
     def _on_dai_confirm(self, text: str) -> None:
         choice = " ".join((text or "").split())
@@ -1033,10 +1257,37 @@ class MainWindow(QMainWindow):
         self.page_agent.clear_clarify()
         self._run_command(choice, source="voice", live_desktop=True)
 
+    def _remember_screen(self, result: dict) -> None:
+        actions = list(result.get("actions") or [])
+        last = actions[-1] if actions else result
+        boxes = list(result.get("boxes") or last.get("boxes") or [])
+        matches = list(last.get("matches") or [])
+        det = last.get("detection") or {}
+        elements = []
+        if det.get("found") or det.get("x") is not None:
+            elements.append(
+                {
+                    "text": det.get("label") or "",
+                    "x": det.get("x"),
+                    "y": det.get("y"),
+                    "width": det.get("width") or 8,
+                    "height": det.get("height") or 8,
+                    "score": det.get("confidence"),
+                }
+            )
+        for item in matches or boxes:
+            if isinstance(item, dict):
+                elements.append(item)
+        if elements:
+            self.tasks.set_screen(elements)
+            self.tasks.session.last_target = elements[0] if self.tasks.session else {}
+
     def _wake_dai(self) -> None:
         self._dai_active = True
         self._dai_primed = False
         self._dai_prime_timer.stop()
+        self._dai_final_timer.stop()
+        self._speech_finalizer.clear()
         self._dai_awaiting_confirm = False
         if self._dai_thread is not None and hasattr(self._dai_thread, "set_session_active"):
             self._dai_thread.set_session_active(True)
@@ -1047,15 +1298,20 @@ class MainWindow(QMainWindow):
             self._dai_overlay.set_mode("active", "Awake — speak a command")
         self.page_agent.clear_clarify()
         self.page_voice.set_status_message("DAI is awake — speak a command")
-        self.toast.show("DAI is awake — speak, then it will sleep again", "info")
+        self.tasks.ensure()
+        self.toast.show("DAI is awake — I'll keep listening until you say done", "info")
 
     def _put_dai_to_sleep(self, detail: str = "") -> None:
+        if self.tasks.active:
+            self.tasks.complete("Session ended.")
         self._dai_active = False
         self._dai_primed = False
         self._dai_awaiting_confirm = False
         self._dai_queue.clear()
         self._dai_sleep_timer.stop()
         self._dai_prime_timer.stop()
+        self._dai_final_timer.stop()
+        self._speech_finalizer.clear()
         if self._dai_thread is not None and hasattr(self._dai_thread, "set_session_active"):
             self._dai_thread.set_session_active(False)
         if self._dai_overlay:
@@ -1064,7 +1320,7 @@ class MainWindow(QMainWindow):
         self.page_agent.clear_clarify()
 
     def _arm_dai_idle(self) -> None:
-        self._dai_sleep_timer.start(28000)
+        self._dai_sleep_timer.start(90000)
 
     def _dai_idle_timeout(self) -> None:
         if self._busy():
@@ -1090,6 +1346,8 @@ class MainWindow(QMainWindow):
         self._dai_active = False
         self._dai_sleep_timer.stop()
         self._dai_prime_timer.stop()
+        self._dai_final_timer.stop()
+        self._speech_finalizer.clear()
         if self._dai_setup is not None:
             try:
                 self._dai_setup.wait(400)

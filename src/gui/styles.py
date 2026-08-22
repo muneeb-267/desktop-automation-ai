@@ -261,6 +261,10 @@ QScrollBar::handle:vertical {
     background: #1e293b; color: #e2e8f0; border: 1px solid #475569;
     border-radius: 8px; font-size: 11px;
 }
+#daiStop {
+    background: #7f1d1d; color: #fecaca; border: 1px solid #ef4444;
+    border-radius: 6px; padding: 0 8px; font-size: 10px; font-weight: 800;
+}
 #logFrame {
     border: 1px solid #1e293b;
     border-radius: 8px;
@@ -419,6 +423,10 @@ QScrollArea { border: none; background: transparent; }
 #daiRetry {
     background: #1e293b; color: #e2e8f0; border: 1px solid #475569;
     border-radius: 8px; font-size: 11px;
+}
+#daiStop {
+    background: #7f1d1d; color: #fecaca; border: 1px solid #ef4444;
+    border-radius: 6px; padding: 0 8px; font-size: 10px; font-weight: 800;
 }
 #logFrame { border: 1px solid #334155; border-radius: 8px; background: #020617; }
 #sectionTitle { font-size: 14px; font-weight: 700; color: #f8fafc; }

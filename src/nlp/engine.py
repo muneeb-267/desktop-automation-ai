@@ -326,6 +326,36 @@ class NLPEngine:
             return "restore_window", 0.95
         if any(w in lemmas for w in ("wait", "pause", "sleep")):
             return "wait", 0.93
+        if re.search(r"\b(dai\s+)?stop(\s+now)?\b|^cancel( task)?$", lower):
+            return "emergency_stop", 0.99
+        if re.search(r"^(done|finish(ed)?|end task|that'?s all)$", lower):
+            return "end_task", 0.96
+        if re.search(
+            r"\b(help me|log me in|walk me through|start (a |the )?task)\b", lower
+        ) and not re.search(r"\b(click|type|open chrome|go to)\b", lower):
+            return "start_task", 0.9
+        if re.search(r"\b(log into|login to)\s+(my|the)\b", lower) and not re.search(
+            r"\b(click|type|open chrome)\b", lower
+        ):
+            return "start_task", 0.88
+        if re.search(r"\b(go back|back( a page)?)\b", lower) and "click" not in lower:
+            return "browser_back", 0.93
+        if re.search(r"\b(go forward|forward)\b", lower) and "click" not in lower:
+            return "browser_forward", 0.9
+        if re.search(r"\b(refresh|reload)\b", lower):
+            return "browser_refresh", 0.92
+        if re.search(r"\b(new tab|open (a )?tab)\b", lower):
+            return "new_tab", 0.93
+        if re.search(r"\b(close (this )?tab)\b", lower):
+            return "close_tab", 0.93
+        if re.search(r"\b(switch|next|previous)\s+tab\b", lower):
+            return "switch_tab", 0.9
+        if re.search(r"\bclose\s+(chrome|edge|firefox|notepad|this (app|window))\b", lower):
+            return "close_app", 0.9
+        if re.search(r"\bplay\s+(music|a song|songs)\b", lower):
+            return "open_url", 0.86
+        if re.search(r"\b(go to|visit|navigate to)\s+\S+", lower):
+            return "open_url", 0.92
         if re.search(r"\b(first|top|1st)\s+(search\s+)?(result|link|hit)\b", lower):
             return "click_text", 0.94
         # Open file / folder / document before generic open_app
@@ -472,6 +502,24 @@ class NLPEngine:
         elif intent == "search_web":
             m = re.search(r"\b(?:search(?:\s+for)?|google)\s+(.+)$", text, re.I)
             entities["query"] = (m.group(1) if m else "").strip(" \"'")
+        elif intent == "open_url":
+            m = re.search(
+                r"\b(?:go to|visit|navigate to|open|search)\s+(?:https?://)?(?P<url>\S+)",
+                text,
+                re.I,
+            )
+            url = (m.group("url") if m else "").strip(" \"'")
+            if re.search(r"\bplay\s+(music|a song|songs)\b", text, re.I):
+                url = "https://music.youtube.com"
+            entities["url"] = url
+            entities["query"] = url
+        elif intent == "switch_tab":
+            entities["which"] = "previous" if re.search(r"\bprev|previous\b", text, re.I) else "next"
+        elif intent == "start_task":
+            entities["goal"] = text
+        elif intent == "close_app":
+            m = re.search(r"\bclose\s+(.+)$", text, re.I)
+            entities["app"] = (m.group(1) if m else "").strip()
         elif intent == "press_key":
             m = re.search(
                 r"\b(?:press|hit)\s+(?:key\s+)?(?P<key>enter|tab|escape|esc|space|backspace|ctrl\+[a-z]|alt\+[a-z]|cmd\+[a-z]|win\+[a-z])\b",
@@ -482,12 +530,18 @@ class NLPEngine:
             entities["key"] = key
         elif intent == "scroll":
             m = re.search(
-                r"\bscroll\s+(?P<direction>up|down|left|right)(?:\s+(?P<amount>\d+))?",
+                r"\bscroll\s+(?:a\s+little\s+)?(?P<direction>up|down|left|right)"
+                r"(?:\s+a\s+little)?(?:\s+(?P<amount>\d+))?",
                 text,
                 re.I,
             )
             entities["direction"] = (m.group("direction") if m else "down").lower()
-            entities["amount"] = int(m.group("amount")) if m and m.group("amount") else 3
+            if m and m.group("amount"):
+                entities["amount"] = int(m.group("amount"))
+            elif re.search(r"\ba\s+little\b", text, re.I):
+                entities["amount"] = 2
+            else:
+                entities["amount"] = 3
         elif intent == "wait":
             m = re.search(r"(?P<seconds>\d+(?:\.\d+)?)", text)
             entities["seconds"] = float(m.group("seconds")) if m else 1.0

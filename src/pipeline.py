@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -12,6 +13,11 @@ from src.db.repositories import NLPCommandRepository, UserConfRepository
 from src.logging_audit.service import AuditService
 from src.nlp.engine import NLPEngine, ParsedCommand
 from src.nlp.planner import ActionPlan, CommandPlanner, PlanStep
+from src.agent.analyzer import ScreenAnalyzer
+from src.agent.browser import apply_browser
+from src.agent.logs import agent_log
+from src.agent.matcher import match_elements
+from src.agent.sensitive import history_line_for_type, is_sensitive_request
 from src.vision.engine import VisionEngine
 from src.vision.search_result import FIRST_RESULT_ELEMENT, is_first_result_phrase
 from src.workflows.service import WorkflowService
@@ -244,6 +250,21 @@ class AutomationPipeline:
                     user_id=user_id,
                 )
                 actions_done.append(result)
+                if result.get("needs_confirm") or result.get("needs_secret"):
+                    emit(result.get("confirm_prompt") or "Need a confirmation before I continue.")
+                    return {
+                        "ok": False,
+                        "needs_confirm": bool(result.get("needs_confirm")),
+                        "needs_secret": bool(result.get("needs_secret")),
+                        "confirm_prompt": result.get("confirm_prompt") or "",
+                        "candidates": result.get("candidates") or [],
+                        "parsed": parsed.to_dict(),
+                        "plan": plan.to_dict(),
+                        "actions": actions_done,
+                        "command_id": command_id,
+                        "error": result.get("confirm_prompt") or "Need confirmation",
+                        "boxes": result.get("boxes") or self.last_boxes,
+                    }
                 completed += 1
                 if result.get("capture_path"):
                     captures.append(result["capture_path"])
@@ -473,6 +494,87 @@ class AutomationPipeline:
                 f"Screen capture failed: {self.vision.last_capture_error or 'unknown error'}"
             )
         prefer = "template" if entities.get("prefer") == "template" else "ocr"
+        if entities.get("skip_match"):
+            detection = self.vision.locate(element, prefer=prefer, frame=frame)
+        else:
+            emit("Analyzing screen…")
+            agent_log("Screen analysis started")
+            state = ScreenAnalyzer(self.vision).analyze(frame)
+            result["screen"] = {"count": len(state.elements), "path": state.capture_path}
+            query = "first result" if first else str(element or "")
+            ranked = match_elements(query, state.elements)
+            result["matches"] = [
+                {"text": m.element.text, "score": m.score, "type": m.element.type}
+                for m in ranked.matches[:4]
+            ]
+            if ranked.best:
+                agent_log(f"Candidate: {ranked.best.element.text}")
+                agent_log(f"Confidence: {ranked.best.score:.2f}")
+            if ranked.ambiguous or (ranked.best and ranked.band == "medium"):
+                result["needs_confirm"] = True
+                result["confirm_prompt"] = ranked.message or (
+                    f"I found “{ranked.best.element.text}”. Do you mean this?"
+                )
+                result["candidates"] = [
+                    {
+                        "text": m.element.text,
+                        "score": m.score,
+                        "x": m.element.x,
+                        "y": m.element.y,
+                        "width": m.element.width,
+                        "height": m.element.height,
+                    }
+                    for m in ranked.matches[:3]
+                ]
+                result["capture_path"] = state.capture_path
+                return result
+            if ranked.best and ranked.band == "high":
+                el = ranked.best.element
+                emit(f"◆highlight {el.x} {el.y} {el.width} {el.height}")
+                emit(f"Clicking {el.text}…")
+                self.automation.capture_region = dict(self.vision.last_region)
+                cx, cy = el.center
+                self.automation.move_to(cx, cy)
+                clicked = self.automation.click(cx, cy)
+                after = None
+                time.sleep(0.35)
+                after = self.vision.capture_screen()
+                check = self.vision.frame_changed(frame, after, threshold=0.01)
+                result["detection"] = {
+                    "found": True,
+                    "x": cx,
+                    "y": cy,
+                    "width": el.width,
+                    "height": el.height,
+                    "method": el.source,
+                    "confidence": ranked.best.score,
+                    "label": el.text,
+                }
+                result["automation"] = clicked
+                result["verification"] = check
+                result["boxes"] = [el.to_dict()]
+                result["capture_path"] = state.capture_path
+                if not check.get("changed") and not self.automation.dry_run:
+                    result["needs_retry"] = True
+                    result["error"] = (
+                        f"“{el.text}” didn't appear to respond. Should I try again?"
+                    )
+                return result
+            if ranked.best and ranked.band == "low" and not first:
+                result["needs_confirm"] = True
+                result["confirm_prompt"] = "I'm not confident which element you mean."
+                result["candidates"] = [
+                    {
+                        "text": m.element.text,
+                        "score": m.score,
+                        "x": m.element.x,
+                        "y": m.element.y,
+                        "width": m.element.width,
+                        "height": m.element.height,
+                    }
+                    for m in ranked.matches[:3]
+                ]
+                return result
         detection = self.vision.locate(element, prefer=prefer, frame=frame)
         result["detection"] = {
             "found": detection.found,
@@ -583,6 +685,19 @@ class AutomationPipeline:
             return result
 
         if intent == "type_text":
+            typed = str(entities.get("text") or "")
+            if is_sensitive_request(typed) or is_sensitive_request(str(entities.get("field") or "")):
+                looks_placeholder = bool(
+                    re.search(r"\b(my|the)\s+(password|pin|otp|code)\b", typed, re.I)
+                    or typed.lower() in ("password", "my password", "the password", "otp", "pin")
+                )
+                if looks_placeholder:
+                    result["needs_secret"] = True
+                    result["confirm_prompt"] = "Enter the secret in the secure prompt. I will not log it."
+                    return result
+                result["automation"] = self.automation.type_text(typed)
+                result["history"] = history_line_for_type(sensitive=True, field=str(entities.get("field") or ""))
+                return result
             field = entities.get("field")
             if field:
                 # Focus named field first (form-friendly)
@@ -634,7 +749,38 @@ class AutomationPipeline:
 
         if intent == "search_web":
             query = entities.get("query", "")
-            result["automation"] = self.automation.search_google(query)
+            q = str(query or "").strip()
+            if q and " " not in q and "." in q:
+                result["automation"] = apply_browser(self.automation, "OPEN_URL", {"url": q})
+            else:
+                result["automation"] = self.automation.search_google(query)
+            return result
+
+        if intent in (
+            "open_url",
+            "browser_back",
+            "browser_forward",
+            "browser_refresh",
+            "new_tab",
+            "close_tab",
+            "switch_tab",
+            "close_app",
+        ):
+            kind = {
+                "open_url": "OPEN_URL",
+                "browser_back": "BACK",
+                "browser_forward": "FORWARD",
+                "browser_refresh": "REFRESH",
+                "new_tab": "NEW_TAB",
+                "close_tab": "CLOSE_TAB",
+                "switch_tab": "SWITCH_TAB",
+                "close_app": "CLOSE_APP",
+            }[intent]
+            result["automation"] = apply_browser(self.automation, kind, entities)
+            return result
+
+        if intent in ("start_task", "end_task", "emergency_stop"):
+            result["note"] = intent
             return result
 
         if intent == "copy_file":

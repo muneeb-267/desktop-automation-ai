@@ -2,7 +2,7 @@ app:
   name: "Automate AI"
   product_name: "AI Desktop Automation"
   group_id: "S26CS089"
-  version: "0.2.0-fyp"
+  version: "0.4.0-fyp"
   tagline: "Your desktop. Your commands. Automated."
 
 paths:
@@ -21,7 +21,7 @@ ui:
   min_height: 560
 
 speech:
-  # auto = offline Vosk (no internet) first, then Chrome, then laptop mic
+  # DAI overlay uses Chrome/Google Web Speech first; Vosk is fallback only
   engine: auto
   wake_word: DAI
   overlay: true

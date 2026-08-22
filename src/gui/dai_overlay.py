@@ -13,6 +13,9 @@ class DaiOverlay(QWidget):
     retry_requested = pyqtSignal()
     tap_requested = pyqtSignal()
     confirm_requested = pyqtSignal(str)
+    stop_requested = pyqtSignal()
+    yes_requested = pyqtSignal()
+    no_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -26,6 +29,7 @@ class DaiOverlay(QWidget):
         self._press_pos: QPoint | None = None
         self._hidden_for_action = False
         self._clarifying = False
+        self._element_confirm = False
         self._chip_buttons: List[QPushButton] = []
 
         root = QVBoxLayout(self)
@@ -42,16 +46,23 @@ class DaiOverlay(QWidget):
         hide.setFixedSize(22, 22)
         hide.setCursor(Qt.PointingHandCursor)
         hide.clicked.connect(self.close_requested.emit)
+        stop = QPushButton("STOP")
+        stop.setObjectName("daiStop")
+        stop.setFixedHeight(22)
+        stop.setCursor(Qt.PointingHandCursor)
+        stop.clicked.connect(self.stop_requested.emit)
+        self._stop_btn = stop
         top.addWidget(self.dot)
         top.addWidget(self.title)
         top.addStretch(1)
+        top.addWidget(stop)
         top.addWidget(hide)
 
         self.line = QLabel("Sleeping — say “DAI wakeup”")
         self.line.setObjectName("daiLine")
         self.line.setWordWrap(True)
 
-        self.hint = QLabel("Google mic. After a command, DAI sleeps again.")
+        self.hint = QLabel("Google mic. After wakeup, keep speaking the next step.")
         self.hint.setObjectName("daiHint")
         self.hint.setWordWrap(True)
 
@@ -69,9 +80,21 @@ class DaiOverlay(QWidget):
         self.confirm_label.setObjectName("daiHint")
         self.confirm_label.setWordWrap(True)
         cl.addWidget(self.confirm_label)
+        yn = QHBoxLayout()
+        self.yes_btn = QPushButton("YES")
+        self.yes_btn.setObjectName("daiChip")
+        self.yes_btn.clicked.connect(self.yes_requested.emit)
+        self.no_btn = QPushButton("NO")
+        self.no_btn.setObjectName("daiChip")
+        self.no_btn.clicked.connect(self.no_requested.emit)
+        yn.addWidget(self.yes_btn)
+        yn.addWidget(self.no_btn)
+        cl.addLayout(yn)
         self.chip_box = QVBoxLayout()
         self.chip_box.setSpacing(4)
         cl.addLayout(self.chip_box)
+        self.yes_btn.hide()
+        self.no_btn.hide()
         self.confirm_host.hide()
 
         root.addLayout(top)
@@ -94,7 +117,7 @@ class DaiOverlay(QWidget):
 
     def set_mode(self, mode: str, detail: str = "") -> None:
         mode = (mode or "sleep").lower()
-        if mode != "clarify":
+        if mode != "clarify" and not self._element_confirm:
             self.clear_clarify()
         if mode == "sleep":
             self.dot.setStyleSheet("color:#94a3b8;font-size:14px;")
@@ -102,8 +125,11 @@ class DaiOverlay(QWidget):
             self.hint.setText("Google mic. Click the pill if wakeup is not heard.")
         elif mode == "active":
             self.dot.setStyleSheet("color:#16a34a;font-size:14px;")
-            self.line.setText(detail or "Awake — speak a command")
-            self.hint.setText("Then DAI sleeps until you say DAI wakeup.")
+            self.line.setText(detail or "Listening — what's next?")
+            self.hint.setText("Say done or DAI sleep to finish. STOP cancels.")
+        elif mode == "analyze":
+            self.dot.setStyleSheet("color:#818cf8;font-size:14px;")
+            self.line.setText(detail or "Analyzing screen…")
         elif mode == "busy":
             self.dot.setStyleSheet("color:#d97706;font-size:14px;")
             self.line.setText(detail or "Working…")
@@ -139,16 +165,41 @@ class DaiOverlay(QWidget):
         self.confirm_host.show()
         self.place_corner()
 
+    def show_element_confirm(self, prompt: str, suggestions: Sequence[str]) -> None:
+        self._clarifying = True
+        self._element_confirm = True
+        self.setFixedSize(312, 300)
+        self.dot.setStyleSheet("color:#818cf8;font-size:14px;")
+        self.line.setText(prompt)
+        self.hint.setText("Yes clicks it. No waits for a clearer command.")
+        self.confirm_label.setText(prompt)
+        self.yes_btn.show()
+        self.no_btn.show()
+        self._clear_chips()
+        for text in list(suggestions)[:3]:
+            btn = QPushButton(text)
+            btn.setObjectName("daiChip")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setMinimumHeight(28)
+            btn.clicked.connect(lambda _=False, t=text: self.confirm_requested.emit(t))
+            self.chip_box.addWidget(btn)
+            self._chip_buttons.append(btn)
+        self.confirm_host.show()
+        self.place_corner()
+
     def clear_clarify(self) -> None:
         if not self._clarifying and not self._chip_buttons:
-            if self.height() != 168:
-                self.setFixedSize(312, 168)
+            if self.height() != 176:
+                self.setFixedSize(312, 176)
             self.confirm_host.hide()
             return
         self._clarifying = False
+        self._element_confirm = False
         self._clear_chips()
+        self.yes_btn.hide()
+        self.no_btn.hide()
         self.confirm_host.hide()
-        self.setFixedSize(312, 168)
+        self.setFixedSize(312, 176)
 
     def _clear_chips(self) -> None:
         for btn in self._chip_buttons:

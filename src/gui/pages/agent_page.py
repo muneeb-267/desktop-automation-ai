@@ -47,7 +47,7 @@ class AgentPage(QWidget):
         title = QLabel("AI Desktop Agent")
         title.setObjectName("pageTitle")
         sub = QLabel(
-            "Your desktop. Your commands. Automated. — Understand → Plan → Verify → Result"
+            "Voice or type a goal. DAI looks at the current screen, confirms if unsure, then waits."
         )
         sub.setObjectName("pageSubtitle")
         sub.setWordWrap(True)
@@ -159,6 +159,10 @@ class AgentPage(QWidget):
         self.status = QLabel("Ready — type a goal, or say DAI wakeup")
         self.status.setObjectName("pageSubtitle")
         root.addWidget(self.status)
+        self.task_log = QLabel("")
+        self.task_log.setObjectName("pageSubtitle")
+        self.task_log.setWordWrap(True)
+        root.addWidget(self.task_log)
 
         scroll.setWidget(host)
         outer.addWidget(scroll)
@@ -207,6 +211,9 @@ class AgentPage(QWidget):
             self.clarify_row.addWidget(btn)
             self._clarify_buttons.append(btn)
         self.clarify_box.setVisible(bool(self._clarify_buttons))
+
+    def set_task_history(self, lines: List[str]) -> None:
+        self.task_log.setText("\n".join(lines or []))
 
     def clear_clarify(self) -> None:
         for btn in self._clarify_buttons:

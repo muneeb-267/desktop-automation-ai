@@ -77,12 +77,12 @@ def is_close_phrase(text: str, *, session_active: bool = False) -> bool:
     t = normalize(text)
     if not t:
         return False
-    if re.search(rf"^{_WAKE_CLOSE}\s+(close(\s+now)?|stop(\s+now)?|quit|sleep)$", t):
+    if re.search(rf"^{_WAKE_CLOSE}\s+(close(\s+now)?|quit|sleep)$", t):
         return True
     if re.search(r"\bclose\s+now\b", t) and re.search(rf"^{_WAKE_CLOSE}\b", t):
         return True
     if session_active and re.search(
-        r"^(close\s+now|stop\s+listening|stop\s+now|go\s+to\s+sleep|sleep(\s+now)?|dai sleep)$",
+        r"^(close\s+now|stop\s+listening|go\s+to\s+sleep|sleep(\s+now)?|dai sleep)$",
         t,
     ):
         return True

@@ -1,0 +1,138 @@
+from src.agent.actions import intent_to_action
+from src.agent.browser import ensure_url
+from src.agent.elements import ScreenElement
+from src.agent.finalizer import SpeechFinalizer, looks_incomplete
+from src.agent.interpreter import CommandInterpreter
+from src.agent.matcher import match_elements
+from src.agent.normalize import is_final_transcript, normalize_command
+from src.agent.safety_gate import must_confirm
+from src.agent.sensitive import history_line_for_type, is_sensitive_request, redact
+from src.agent.session import CANCELLED, TaskManager
+
+
+def test_partial_transcript_never_becomes_an_action():
+    interp = CommandInterpreter()
+    result = interp.interpret("Click Login with", is_final=False)
+    assert result.actions == []
+    assert result.ask == "partial"
+    assert is_final_transcript(is_final=False) is False
+    final = interp.interpret("Click Login with Microsoft", is_final=True)
+    assert final.actions
+    assert final.actions[0].type == "CLICK"
+    assert "microsoft" in str(final.actions[0].parameters.get("element") or "").lower()
+
+
+def test_normalize_stt_mistakes():
+    assert "chrome" in normalize_command("open crohm").lower()
+    assert "microsoft" in normalize_command("login with micro soft").lower()
+
+
+def test_go_to_domain_is_open_url():
+    interp = CommandInterpreter()
+    result = interp.interpret("Search horizon.ucp.edu.pk", is_final=True)
+    assert result.actions
+    assert result.actions[0].type == "OPEN_URL"
+    assert "horizon.ucp.edu.pk" in result.actions[0].parameters.get("url", "")
+
+
+def test_task_start_and_stop():
+    interp = CommandInterpreter()
+    start = interp.interpret("help me log into my university portal", is_final=True)
+    assert start.start_task is True
+    stop = interp.interpret("DAI STOP", is_final=True)
+    assert stop.stop is True
+    done = interp.interpret("done", is_final=True)
+    assert done.end_task is True
+
+
+def test_session_keeps_history_without_secrets():
+    mgr = TaskManager()
+    mgr.start("Log into Horizon")
+    mgr.record("Opened Chrome")
+    mgr.record(history_line_for_type(sensitive=True, field="password"))
+    mgr.waiting_for_next()
+    lines = "\n".join(mgr.session.history_lines())
+    assert "Opened Chrome" in lines
+    assert "password" in lines.lower()
+    assert "abc123" not in lines
+    assert "Waiting for next instruction" in lines
+
+
+def test_element_match_ranks_microsoft_login():
+    els = [
+        ScreenElement(id="1", type="button", text="Login", x=10, y=10, width=80, height=30),
+        ScreenElement(id="2", type="button", text="Login with Microsoft", x=10, y=80, width=220, height=40),
+        ScreenElement(id="3", type="button", text="Sign in", x=10, y=140, width=80, height=30),
+    ]
+    hit = match_elements("Click Login with Microsoft", els)
+    assert hit.best is not None
+    assert "microsoft" in hit.best.element.text.lower()
+    assert hit.best.score >= 0.9
+
+
+def test_ambiguous_login_buttons_do_not_auto_pick():
+    els = [
+        ScreenElement(id="1", type="button", text="Login", x=10, y=10, width=80, height=30),
+        ScreenElement(id="2", type="button", text="Admin Login", x=10, y=80, width=120, height=30),
+        ScreenElement(id="3", type="button", text="Login with Microsoft", x=10, y=140, width=220, height=40),
+    ]
+    hit = match_elements("click the login button", els)
+    assert hit.matches
+    if hit.confidence >= 0.65 and len(hit.matches) > 1:
+        assert hit.ambiguous or hit.best.element.text.lower() != "admin login"
+
+
+def test_payment_and_sensitive_safety():
+    confirm, prompt = must_confirm("click pay now")
+    assert confirm is True
+    assert "payment" in prompt.lower() or "proceed" in prompt.lower()
+    assert is_sensitive_request("type my password")
+    assert "[redacted]" in redact("password: hunter2")
+    assert "hunter2" not in redact("password: hunter2")
+
+
+def test_intent_mapping_and_browser_url():
+    action = intent_to_action("browser_back", {}, confidence=0.9)
+    assert action is not None and action.type == "BACK"
+    assert ensure_url("horizon.ucp.edu.pk").startswith("https://")
+    typed = intent_to_action("type_text", {"text": "hello"}, confidence=0.9)
+    assert typed is not None and typed.type == "TYPE"
+    scrolled = intent_to_action("scroll", {"direction": "down"}, confidence=0.9)
+    assert scrolled is not None and scrolled.type == "SCROLL"
+
+
+def test_speech_finalizer_holds_incomplete_then_joins():
+    assert looks_incomplete("Click Login with")
+    assert not looks_incomplete("Click Login with Microsoft")
+    fin = SpeechFinalizer(hold_s=0.4, incomplete_s=0.6)
+    assert fin.feed_final("Click Login with", now=10.0) is None
+    out = fin.feed_final("Microsoft", now=10.2)
+    assert out is not None
+    assert "login with microsoft" in out[0].lower()
+
+
+def test_speech_finalizer_timeout_releases_held_phrase():
+    fin = SpeechFinalizer(hold_s=0.2, incomplete_s=0.3)
+    assert fin.feed_final("Click Login with", now=1.0) is None
+    assert fin.take_due(now=1.1) is None
+    released = fin.take_due(now=1.5)
+    assert released is not None
+    assert released[0].lower().startswith("click")
+
+
+def test_emergency_stop_cancels_session():
+    mgr = TaskManager()
+    mgr.start("portal")
+    mgr.cancel("Emergency stop")
+    assert mgr.session is not None
+    assert mgr.session.status == CANCELLED
+    assert mgr.active is False
+
+
+def test_click_it_uses_last_target():
+    mgr = TaskManager()
+    mgr.ensure()
+    mgr.session.last_target = {"text": "Next", "x": 10, "y": 20}
+    hit = mgr.resolve_reference("click it")
+    assert hit is not None
+    assert hit.get("text") == "Next"
