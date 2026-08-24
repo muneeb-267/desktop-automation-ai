@@ -19,6 +19,7 @@ from src.agent.logs import agent_log
 from src.agent.matcher import match_elements
 from src.agent.sensitive import history_line_for_type, is_sensitive_request
 from src.vision.engine import VisionEngine
+from src.vision.ocr_text import brand_tokens
 from src.vision.search_result import (
     FIRST_RESULT_ELEMENT,
     is_first_result_phrase,
@@ -743,6 +744,7 @@ class AutomationPipeline:
                         "visible, then say the blue title, e.g. click Login With Odoo."
                     )
                 visible = []
+                state = None
                 try:
                     state = ScreenAnalyzer(self.vision).analyze(frame)
                     visible = [
@@ -763,6 +765,30 @@ class AutomationPipeline:
                     ][:4]
                 except Exception:
                     visible = []
+                wanted = brand_tokens(element)
+                if wanted and state is not None:
+                    branded = [
+                        e
+                        for e in state.elements
+                        if wanted <= set(re.findall(r"[a-z0-9]+", (e.text or "").lower()))
+                    ]
+                    if len(branded) == 1:
+                        el = branded[0]
+                        emit(f"◆highlight {el.x} {el.y} {el.width} {el.height}")
+                        emit(f"Clicking {el.text}…")
+                        cx, cy = el.center
+                        self.automation.move_to(cx, cy)
+                        result["automation"] = self.automation.click(cx, cy, label=el.text or element)
+                        result["detection"] = {
+                            "found": True,
+                            "x": cx,
+                            "y": cy,
+                            "width": el.width,
+                            "height": el.height,
+                            "method": "brand",
+                            "label": el.text,
+                        }
+                        return result
                 if visible:
                     result["needs_confirm"] = True
                     result["confirm_prompt"] = (

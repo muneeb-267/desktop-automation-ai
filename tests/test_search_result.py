@@ -46,6 +46,7 @@ def test_short_ocr_words_do_not_match_long_query():
     assert text_matches_query("Login With Odoo", "login with odoo") is True
     assert text_matches_query("login With Microsoft", "login with microsoft") is True
     assert text_matches_query("Microsoft", "login with microsoft") is True
+    assert text_matches_query("login With Microsoft", "login with microsoft button") is True
 
 
 def test_pick_first_google_result_title():

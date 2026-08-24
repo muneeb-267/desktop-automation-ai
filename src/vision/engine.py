@@ -225,7 +225,39 @@ class VisionEngine:
             extra.append(self._tesseract_pass(variants[1], 4, min_conf=12.0))
             more = self._ocr_scale_words(merge_ocr_words(extra), scale)
             words = merge_ocr_words([words, more])
+        panels = self._ocr_bright_panels(img)
+        if panels:
+            words = merge_ocr_words([words, panels])
         return words
+
+    def _ocr_bright_panels(self, img) -> List[Dict[str, Any]]:
+        """OCR white pill buttons (Horizon login) that get lost on a photo background."""
+        import cv2
+
+        try:
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        except Exception:
+            return []
+        h, w = gray.shape[:2]
+        _, mask = cv2.threshold(gray, 208, 255, cv2.THRESH_BINARY)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 17), np.uint8))
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        found: List[Dict[str, Any]] = []
+        for contour in contours:
+            x, y, cw, ch = cv2.boundingRect(contour)
+            if cw < 90 or ch < 20 or ch > 90 or cw > int(w * 0.55) or y < 50:
+                continue
+            y0, y1 = max(0, y - 4), min(h, y + ch + 4)
+            x0, x1 = max(0, x - 4), min(w, x + cw + 4)
+            crop = gray[y0:y1, x0:x1]
+            crop = cv2.copyMakeBorder(crop, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
+            for psm in (7, 6):
+                for item in self._tesseract_pass(crop, psm, min_conf=10.0):
+                    row = dict(item)
+                    row["x"] = int(item.get("x") or 0) + x0 - 10
+                    row["y"] = int(item.get("y") or 0) + y0 - 10
+                    found.append(row)
+        return found
 
     def find_text(self, query: str, frame: Optional[np.ndarray] = None) -> DetectionResult:
         """Locate on-screen text via Tesseract OCR and return center coordinates."""

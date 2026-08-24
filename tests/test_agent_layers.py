@@ -73,6 +73,9 @@ def test_interpreter_clicks_first_and_second_links():
     polite = interp.interpret("you should open the first link", is_final=True)
     assert polite.actions
     assert polite.actions[0].parameters.get("result_index") == 1
+
+
+def test_element_match_ranks_microsoft_login():
     els = [
         ScreenElement(id="1", type="button", text="Login", x=10, y=10, width=80, height=30),
         ScreenElement(id="2", type="button", text="Login with Microsoft", x=10, y=80, width=220, height=40),
@@ -82,6 +85,28 @@ def test_interpreter_clicks_first_and_second_links():
     assert hit.best is not None
     assert "microsoft" in hit.best.element.text.lower()
     assert hit.best.score >= 0.9
+
+
+def test_microsoft_button_phrase_clicks_microsoft_not_odoo():
+    from src.nlp.engine import NLPEngine
+    from src.vision.ocr_text import normalize_ocr_query
+
+    parsed = NLPEngine().parse("click the login with microsoft button")
+    assert parsed.intent in ("click_text", "click_button")
+    assert "microsoft" in parsed.entities.get("element", "").lower()
+    assert "button" not in parsed.entities.get("element", "").lower()
+    assert normalize_ocr_query("login with microsoft button") == "login with microsoft"
+
+    els = [
+        ScreenElement(id="1", type="button", text="Login With Odoo", x=40, y=200, width=200, height=40),
+        ScreenElement(id="2", type="button", text="login With Microsoft", x=40, y=260, width=220, height=40),
+    ]
+    hit = match_elements("login with microsoft button", els)
+    assert hit.best is not None
+    assert "microsoft" in hit.best.element.text.lower()
+    assert "odoo" not in hit.best.element.text.lower()
+    assert hit.best.score >= 0.9
+    assert hit.ambiguous is False
 
 
 def test_ambiguous_login_buttons_do_not_auto_pick():

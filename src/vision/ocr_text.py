@@ -14,6 +14,26 @@ _BRANDS = (
 _BRAND_TOKENS = frozenset(
     {"microsoft", "odoo", "google", "facebook", "apple", "username", "password"}
 )
+_QUERY_FILLER = re.compile(
+    r"\b(the|a|an|please|button|buttons|btn|link|links|icon|icons)\b",
+    re.I,
+)
+_QUERY_STOP = frozenset(
+    {
+        "button",
+        "buttons",
+        "btn",
+        "link",
+        "links",
+        "click",
+        "tap",
+        "icon",
+        "the",
+        "with",
+        "and",
+        "please",
+    }
+)
 
 
 def normalize_ocr_text(text: str) -> str:
@@ -25,13 +45,18 @@ def normalize_ocr_text(text: str) -> str:
 
 def normalize_ocr_query(text: str) -> str:
     t = normalize_ocr_text(text).lower()
-    t = re.sub(r"^(click|tap|press|open)\s+(on\s+)?(the\s+)?", "", t).strip()
-    return t
+    t = re.sub(r"^(click|tap|press|open|select|choose|pick)\s+(on\s+)?(the\s+)?", "", t).strip()
+    t = _QUERY_FILLER.sub(" ", t)
+    return " ".join(t.split()).strip()
 
 
 def distinctive_tokens(text: str) -> List[str]:
     toks = re.findall(r"[a-z0-9]+", normalize_ocr_query(text))
-    return [t for t in toks if t in _BRAND_TOKENS or len(t) >= 6]
+    return [t for t in toks if t not in _QUERY_STOP and (t in _BRAND_TOKENS or len(t) >= 6)]
+
+
+def brand_tokens(text: str) -> set:
+    return set(re.findall(r"[a-z0-9]+", normalize_ocr_query(text))) & _BRAND_TOKENS
 
 
 def tokens_overlap(query: str, text: str) -> float:

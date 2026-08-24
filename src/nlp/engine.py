@@ -508,6 +508,7 @@ class NLPEngine:
             )
             element = (m.group(1) if m else "").strip(" \"'")
             element = re.sub(r"^(?:on\s+)?(?:the\s+)?", "", element, flags=re.I).strip()
+            element = re.sub(r"\s+(buttons?|btn|links?|icons?)$", "", element, flags=re.I).strip()
             idx = parse_result_index(text) or parse_result_index(element)
             if idx:
                 entities.update(ranked_result_entities(idx))
