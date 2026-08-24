@@ -13,13 +13,13 @@ from src.db.repositories import NLPCommandRepository, UserConfRepository
 from src.logging_audit.service import AuditService
 from src.nlp.engine import NLPEngine, ParsedCommand
 from src.nlp.planner import ActionPlan, CommandPlanner, PlanStep
-from src.agent.analyzer import ScreenAnalyzer
 from src.agent.browser import apply_browser
 from src.agent.logs import agent_log
-from src.agent.matcher import match_elements
+from src.agent.resolver import resolve_click_target, visible_loginish
+from src.agent.semantic import expand_click_query
 from src.agent.sensitive import history_line_for_type, is_sensitive_request
+from src.agent.verify import click_succeeded, page_snapshot
 from src.vision.engine import VisionEngine
-from src.vision.ocr_text import brand_tokens
 from src.vision.search_result import (
     FIRST_RESULT_ELEMENT,
     is_first_result_phrase,
@@ -597,100 +597,55 @@ class AutomationPipeline:
             return self._click_ranked_result(result_index, frame, result)
         prefer = "template" if entities.get("prefer") == "template" else "ocr"
         if entities.get("skip_match"):
-            detection = self.vision.locate(element, prefer=prefer, frame=frame)
-        else:
-            emit("Analyzing screen…")
-            agent_log("Screen analysis started")
-            state = ScreenAnalyzer(self.vision).analyze(frame)
-            result["screen"] = {"count": len(state.elements), "path": state.capture_path}
-            query = "first result" if first else str(element or "")
-            ranked = match_elements(query, state.elements)
-            result["matches"] = [
-                {"text": m.element.text, "score": m.score, "type": m.element.type}
-                for m in ranked.matches[:4]
-            ]
-            if ranked.best:
-                agent_log(f"Candidate: {ranked.best.element.text}")
-                agent_log(f"Confidence: {ranked.best.score:.2f}")
-            unique_medium = bool(
-                ranked.best
-                and ranked.band == "medium"
-                and (
-                    len(ranked.matches) < 2
-                    or ranked.matches[1].score < ranked.best.score - 0.12
-                )
-            )
-            if ranked.ambiguous:
-                result["needs_confirm"] = True
-                result["confirm_prompt"] = ranked.message or (
-                    f"I found “{ranked.best.element.text}”. Do you mean this?"
-                )
-                result["candidates"] = [
-                    {
-                        "text": m.element.text,
-                        "score": m.score,
-                        "x": m.element.x,
-                        "y": m.element.y,
-                        "width": m.element.width,
-                        "height": m.element.height,
-                    }
-                    for m in ranked.matches[:3]
-                ]
-                result["capture_path"] = state.capture_path
-                return result
-            if ranked.best and ranked.band == "medium" and not unique_medium:
-                result["needs_confirm"] = True
-                result["confirm_prompt"] = ranked.message or (
-                    f"I found “{ranked.best.element.text}”. Do you mean this?"
-                )
-                result["candidates"] = [
-                    {
-                        "text": m.element.text,
-                        "score": m.score,
-                        "x": m.element.x,
-                        "y": m.element.y,
-                        "width": m.element.width,
-                        "height": m.element.height,
-                    }
-                    for m in ranked.matches[:3]
-                ]
-                result["capture_path"] = state.capture_path
-                return result
-            if ranked.best and (ranked.band == "high" or unique_medium):
-                el = ranked.best.element
-                emit(f"◆highlight {el.x} {el.y} {el.width} {el.height}")
-                emit(f"Clicking {el.text}…")
+            return self._click_via_locate(element, prefer, frame, result, emit)
+        return self._click_via_resolver(element, frame, result, emit)
+
+    def _click_via_resolver(self, element: str, frame, result: Dict[str, Any], emit) -> Dict[str, Any]:
+        query = expand_click_query(element) or str(element or "")
+        result["query"] = element
+        result["expanded"] = query
+        emit("Analyzing screen (accessibility → OCR → vision)…")
+        agent_log("Hybrid resolver started")
+        exclude: set = set()
+        last_visible: List[Dict[str, Any]] = []
+        capture_path = ""
+        for attempt in range(1, 4):
+            if attempt > 1:
+                emit("Recovering — trying the next strategy…")
+                agent_log(f"Recovery round {attempt}")
+                time.sleep(0.55)
+                frame = self.vision.capture_screen()
                 self.automation.capture_region = dict(self.vision.last_region)
-                cx, cy = el.center
-                self.automation.move_to(cx, cy)
-                clicked = self.automation.click(cx, cy, label=el.text or element)
-                after = None
-                time.sleep(0.35)
-                after = self.vision.capture_screen()
-                check = self.vision.frame_changed(frame, after, threshold=0.01)
-                result["detection"] = {
-                    "found": True,
-                    "x": cx,
-                    "y": cy,
-                    "width": el.width,
-                    "height": el.height,
-                    "method": el.source,
-                    "confidence": ranked.best.score,
-                    "label": el.text,
+            before_sig = page_snapshot()
+            result["page_before"] = before_sig
+            resolved = resolve_click_target(query, self.vision, frame, exclude_ids=exclude)
+            result["strategies"] = list(resolved.strategies)
+            result["matches"] = [
+                {
+                    "text": m.element.text,
+                    "score": m.score,
+                    "type": m.element.type,
+                    "source": m.element.source,
                 }
-                result["automation"] = clicked
-                result["verification"] = check
-                result["boxes"] = [el.to_dict()]
-                result["capture_path"] = state.capture_path
-                if not check.get("changed") and not self.automation.dry_run:
-                    result["needs_retry"] = True
-                    result["error"] = (
-                        f"“{el.text}” didn't appear to respond. Should I try again?"
-                    )
-                return result
-            if ranked.best and ranked.band == "low" and not first:
+                for m in resolved.matches[:4]
+            ]
+            if resolved.state is not None:
+                capture_path = resolved.state.capture_path or capture_path
+                result["screen"] = {
+                    "count": len(resolved.state.elements),
+                    "path": resolved.state.capture_path,
+                }
+                last_visible = visible_loginish(resolved.state.elements)
+            if resolved.element:
+                agent_log(f"Candidate: {resolved.element.text}")
+                agent_log(f"Confidence: {resolved.score:.2f} ({resolved.method})")
+            if resolved.ambiguous and resolved.candidates:
                 result["needs_confirm"] = True
-                result["confirm_prompt"] = "I'm not confident which element you mean."
+                result["confirm_prompt"] = resolved.message or (
+                    f"I found “{resolved.element.text}”. Do you mean this?"
+                    if resolved.element
+                    else "I found more than one matching control."
+                )
                 result["candidates"] = [
                     {
                         "text": m.element.text,
@@ -700,9 +655,96 @@ class AutomationPipeline:
                         "width": m.element.width,
                         "height": m.element.height,
                     }
-                    for m in ranked.matches[:3]
+                    for m in resolved.matches[:3]
+                ] or [
+                    {
+                        "text": el.text,
+                        "score": 0.8,
+                        "x": el.x,
+                        "y": el.y,
+                        "width": el.width,
+                        "height": el.height,
+                    }
+                    for el in resolved.candidates[:3]
                 ]
+                result["capture_path"] = capture_path
                 return result
+            candidates = []
+            seen: set = set()
+            for el in ([resolved.element] if resolved.element else []) + list(resolved.candidates):
+                if el is None or el.id in exclude or el.id in seen:
+                    continue
+                seen.add(el.id)
+                candidates.append(el)
+            if not candidates:
+                continue
+            if resolved.weak and attempt < 3:
+                emit("Low-confidence match — checking other strategies first…")
+                continue
+            el = candidates[0]
+            clicked, check, after_sig, ok = self._click_resolved(
+                el, frame, before_sig, emit
+            )
+            result["detection"] = {
+                "found": True,
+                "x": el.center[0],
+                "y": el.center[1],
+                "width": el.width,
+                "height": el.height,
+                "method": el.source or resolved.method,
+                "confidence": resolved.score or el.confidence,
+                "label": el.text,
+            }
+            result["automation"] = clicked
+            result["verification"] = check
+            result["page_after"] = after_sig
+            result["boxes"] = [el.to_dict()]
+            result["capture_path"] = capture_path
+            if self.automation.dry_run or ok:
+                return result
+            emit(f"“{el.text}” didn't change the page — recovering…")
+            agent_log(f"No PAGE_CHANGED after {resolved.method} click")
+            exclude.add(el.id)
+        result["capture_path"] = capture_path
+        if last_visible:
+            result["needs_confirm"] = True
+            result["confirm_prompt"] = (
+                f"I couldn't lock onto “{element}” after accessibility, OCR, and vision. "
+                "Do you mean one of these?"
+            )
+            result["candidates"] = last_visible
+            return result
+        if not (element or "").strip():
+            raise RuntimeError(
+                "Click has no target. Say the button or link name, for example “click login”."
+            )
+        raise RuntimeError(
+            f"Could not find on-screen element: {element}. "
+            "I tried accessibility, semantic text, OCR, and vision. "
+            "If the button is visible, install Tesseract OCR and pywinauto, then try again."
+        )
+
+    def _click_resolved(self, el, frame, before_sig: Dict[str, Any], emit):
+        emit(f"◆highlight {el.x} {el.y} {el.width} {el.height}")
+        emit(f"Clicking {el.text}…")
+        self.automation.capture_region = dict(self.vision.last_region)
+        cx, cy = el.center
+        self.automation.move_to(cx, cy)
+        clicked = self.automation.click(cx, cy, label=el.text or "")
+        time.sleep(0.7)
+        after = self.vision.capture_screen()
+        check = self.vision.frame_changed(frame, after, threshold=0.01)
+        after_sig = page_snapshot()
+        ok = click_succeeded(before_sig, after_sig, bool(check.get("changed")))
+        if not ok:
+            time.sleep(0.55)
+            after = self.vision.capture_screen()
+            check = self.vision.frame_changed(frame, after, threshold=0.01)
+            after_sig = page_snapshot()
+            ok = click_succeeded(before_sig, after_sig, bool(check.get("changed")))
+        return clicked, check, after_sig, ok
+
+    def _click_via_locate(self, element: str, prefer: str, frame, result: Dict[str, Any], emit) -> Dict[str, Any]:
         detection = self.vision.locate(element, prefer=prefer, frame=frame)
         result["detection"] = {
             "found": detection.found,
@@ -738,69 +780,6 @@ class AutomationPipeline:
                     result["automation"] = self.automation.click(w // 2, h // 2, label=element)
                     result["note"] = "Element not found; dry-run used screen center"
                     return result
-                if first:
-                    raise RuntimeError(
-                        "Could not see the first search result. Make sure Google results are "
-                        "visible, then say the blue title, e.g. click Login With Odoo."
-                    )
-                visible = []
-                state = None
-                try:
-                    state = ScreenAnalyzer(self.vision).analyze(frame)
-                    visible = [
-                        {
-                            "text": e.text,
-                            "score": 0.5,
-                            "x": e.x,
-                            "y": e.y,
-                            "width": e.width,
-                            "height": e.height,
-                        }
-                        for e in state.elements
-                        if re.search(
-                            r"login|sign|microsoft|odoo|next|submit|email|password",
-                            e.text or "",
-                            re.I,
-                        )
-                    ][:4]
-                except Exception:
-                    visible = []
-                wanted = brand_tokens(element)
-                if wanted and state is not None:
-                    branded = [
-                        e
-                        for e in state.elements
-                        if wanted <= set(re.findall(r"[a-z0-9]+", (e.text or "").lower()))
-                    ]
-                    if len(branded) == 1:
-                        el = branded[0]
-                        emit(f"◆highlight {el.x} {el.y} {el.width} {el.height}")
-                        emit(f"Clicking {el.text}…")
-                        cx, cy = el.center
-                        self.automation.move_to(cx, cy)
-                        result["automation"] = self.automation.click(cx, cy, label=el.text or element)
-                        result["detection"] = {
-                            "found": True,
-                            "x": cx,
-                            "y": cy,
-                            "width": el.width,
-                            "height": el.height,
-                            "method": "brand",
-                            "label": el.text,
-                        }
-                        return result
-                if visible:
-                    result["needs_confirm"] = True
-                    result["confirm_prompt"] = (
-                        f"I couldn't read “{element}” clearly. Do you mean one of these?"
-                    )
-                    result["candidates"] = visible
-                    result["capture_path"] = result.get("capture_path") or ""
-                    return result
-                if not (element or "").strip():
-                    raise RuntimeError(
-                        "Click has no target. Say the button or link name, for example “click login”."
-                    )
                 raise RuntimeError(
                     f"Could not find on-screen element: {element}. "
                     "If the button is visible, install Tesseract OCR and try again."
@@ -808,7 +787,8 @@ class AutomationPipeline:
         result["capture_path"] = self.vision.save_capture(
             frame if frame is not None else self.vision.last_frame,
             label=f"click_hit_{element}",
-            boxes=detection.boxes or [
+            boxes=detection.boxes
+            or [
                 {
                     "x": detection.x - detection.width // 2,
                     "y": detection.y - detection.height // 2,
@@ -819,28 +799,27 @@ class AutomationPipeline:
             ],
         )
         emit(f"Clicking “{detection.label or element}”")
+        before_sig = page_snapshot()
         result["automation"] = self.automation.click(
             detection.x, detection.y, label=detection.label or element
         )
-        if first and not self.automation.dry_run:
-            time.sleep(0.55)
+        if not self.automation.dry_run:
+            time.sleep(0.45)
             after = self.vision.capture_screen()
             check = self.vision.frame_changed(frame, after, threshold=0.012)
+            after_sig = page_snapshot()
             result["verification"] = check
-            if not check.get("changed"):
-                emit("First click missed — retrying a bit lower")
+            result["page_after"] = after_sig
+            if not click_succeeded(before_sig, after_sig, bool(check.get("changed"))):
+                emit("Click missed — retrying a bit lower")
                 result["automation"] = self.automation.click(
                     detection.x, detection.y + 14, label=detection.label or element
                 )
-                time.sleep(0.55)
+                time.sleep(0.45)
                 after2 = self.vision.capture_screen()
                 check2 = self.vision.frame_changed(frame, after2, threshold=0.012)
                 result["verification_retry"] = check2
-                if not check2.get("changed"):
-                    raise RuntimeError(
-                        "I clicked, but the search page did not open. "
-                        "Say the blue title instead, for example: click Login With Odoo."
-                    )
+                result["page_after"] = page_snapshot()
         return result
 
     def _execute_step(

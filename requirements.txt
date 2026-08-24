@@ -22,3 +22,7 @@ bcrypt>=4.1.0
 # Installed separately by INSTALL_ON_YOUR_WINDOWS_PC.bat so a PyAudio
 # build failure cannot block the rest of the app.
 # PyAudio>=0.2.13
+
+# Optional Windows UI Automation for hybrid clicks (accessibility before OCR).
+# Soft-imported; the app still runs without it.
+# pywinauto>=0.6.8

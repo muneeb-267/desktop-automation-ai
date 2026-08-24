@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 import subprocess
@@ -9,6 +10,11 @@ import time
 import webbrowser
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote_plus
+
+_CHROME_A11Y_FLAGS = (
+    "--force-renderer-accessibility",
+    "--remote-debugging-port=9222",
+)
 
 
 class AutomationEngine:
@@ -240,16 +246,11 @@ class AutomationEngine:
             return entry
         system = platform.system().lower()
         launched = False
-        # Prefer Chrome when available for Google/search tasks
-        chrome = (
-            shutil.which("google-chrome")
-            or shutil.which("google-chrome-stable")
-            or shutil.which("chromium")
-            or shutil.which("chromium-browser")
-        )
+        chrome = _chrome_executable()
         try:
             if chrome:
-                subprocess.Popen([chrome, "--new-tab", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                cmd = [chrome, *_CHROME_A11Y_FLAGS, "--new-tab", url]
+                subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 launched = True
                 entry["launched_with"] = chrome
             elif system == "windows":
@@ -292,13 +293,16 @@ class AutomationEngine:
         last_error: Optional[Exception] = None
         for cmd in commands:
             try:
-                if system == "windows":
+                if isinstance(cmd, (list, tuple)):
+                    subprocess.Popen(
+                        list(cmd),
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                elif system == "windows":
                     subprocess.Popen(cmd, shell=True)
                 else:
-                    if isinstance(cmd, str):
-                        subprocess.Popen(cmd, shell=True)
-                    else:
-                        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.Popen(cmd, shell=True)
                 self._sleep(self.app_launch_wait)
                 entry["launched_with"] = cmd
                 return entry
@@ -547,8 +551,9 @@ class AutomationEngine:
         return entry
 
     def _resolve_launch_command(self, app: str, system: str) -> List[Any]:
-        mapping_win = {
-            "chrome": ["start chrome", "start msedge"],
+        chrome_cmd = _browser_launch_command()
+        mapping_win: Dict[str, List[Any]] = {
+            "chrome": [chrome_cmd, "start chrome", "start msedge"] if chrome_cmd else ["start chrome", "start msedge"],
             "msedge": ["start msedge"],
             "firefox": ["start firefox"],
             "notepad": ["notepad"],
@@ -560,14 +565,13 @@ class AutomationEngine:
             "gmail": ["start https://mail.google.com"],
             "youtube": ["start https://www.youtube.com"],
         }
-        chrome_bin = (
-            shutil.which("google-chrome")
-            or shutil.which("google-chrome-stable")
-            or shutil.which("chromium")
-            or shutil.which("chromium-browser")
-        )
+        chrome_bin = _chrome_executable()
         mapping_linux = {
-            "chrome": [[chrome_bin] if chrome_bin else ["google-chrome"], ["chromium"], ["firefox"]],
+            "chrome": [
+                [chrome_bin, *_CHROME_A11Y_FLAGS] if chrome_bin else ["google-chrome", *_CHROME_A11Y_FLAGS],
+                ["chromium"],
+                ["firefox"],
+            ],
             "firefox": [["firefox"]],
             "notepad": [["gedit"], ["xed"], ["mousepad"], ["xed"]],
             "calculator": [["gnome-calculator"], ["kcalc"], ["galculator"]],
@@ -591,7 +595,8 @@ class AutomationEngine:
             "youtube": [["open", "https://www.youtube.com"]],
         }
         if system == "windows":
-            return mapping_win.get(app, [f"start {app}"])
+            cmds = mapping_win.get(app, [f"start {app}"])
+            return [c for c in cmds if c]
         if system == "darwin":
             return mapping_mac.get(app, [["open", "-a", app]])
         cmds = mapping_linux.get(app)
@@ -609,3 +614,38 @@ def os_path_home() -> str:
     from pathlib import Path
 
     return str(Path.home())
+
+
+def _chrome_executable() -> Optional[str]:
+    """Prefer a real chrome.exe so we can pass accessibility / debug flags."""
+    which = (
+        shutil.which("google-chrome")
+        or shutil.which("google-chrome-stable")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+        or shutil.which("chrome")
+        or shutil.which("msedge")
+    )
+    if which:
+        return which
+    candidates = [
+        os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+    ]
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    return None
+
+
+def _browser_launch_command(url: Optional[str] = None) -> Optional[List[str]]:
+    exe = _chrome_executable()
+    if not exe:
+        return None
+    cmd = [exe, *_CHROME_A11Y_FLAGS]
+    if url:
+        cmd.append(url)
+    return cmd

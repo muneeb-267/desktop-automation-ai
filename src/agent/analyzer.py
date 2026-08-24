@@ -96,7 +96,12 @@ class ScreenAnalyzer:
     def __init__(self, vision) -> None:
         self.vision = vision
 
-    def analyze(self, frame=None) -> ScreenState:
+    def analyze(
+        self,
+        frame=None,
+        extra_elements: Optional[List[ScreenElement]] = None,
+        include_accessibility: bool = True,
+    ) -> ScreenState:
         img = frame if frame is not None else self.vision.capture_screen()
         h, w = img.shape[:2]
         words = []
@@ -147,67 +152,17 @@ class ScreenAnalyzer:
             path = self.vision.save_capture(img, label="screen_state", boxes=[e.to_dict() for e in elements[:24]])
         except Exception:
             path = ""
-        a11y = _optional_accessibility(getattr(self.vision, "last_region", None))
-        if a11y:
-            elements.extend(a11y)
+        if extra_elements:
+            elements.extend(extra_elements)
+        elif include_accessibility:
+            a11y = _optional_accessibility(getattr(self.vision, "last_region", None))
+            if a11y:
+                elements.extend(a11y)
         return ScreenState(elements=elements, width=w, height=h, capture_path=path)
 
 
 def _optional_accessibility(region: Optional[Dict[str, Any]] = None) -> List[ScreenElement]:
     """Best-effort Windows UI Automation. Soft-fail if pywinauto is not installed."""
-    try:
-        from pywinauto import Desktop  # type: ignore
-    except Exception:
-        return []
-    found: List[ScreenElement] = []
-    left = int((region or {}).get("left") or 0)
-    top = int((region or {}).get("top") or 0)
-    try:
-        desk = Desktop(backend="uia")
-        windows = []
-        try:
-            for win in desk.windows():
-                title = (win.window_text() or "").lower()
-                if any(k in title for k in ("chrome", "edge", "horizon", "ucp", "firefox")):
-                    windows.append(win)
-        except Exception:
-            windows = []
-        if not windows:
-            active = desk.get_active()
-            if active is not None:
-                windows = [active]
-        idx = 0
-        for win in windows[:4]:
-            try:
-                ctrls = win.descendants()[:120]
-            except Exception:
-                continue
-            for ctrl in ctrls:
-                try:
-                    text = (ctrl.window_text() or "").strip()
-                    if not text or len(text) > 80:
-                        continue
-                    rec = ctrl.rectangle()
-                    kind = "button" if "Button" in str(ctrl.element_info.control_type) else "text"
-                    if "Edit" in str(ctrl.element_info.control_type):
-                        kind = "input"
-                    found.append(
-                        ScreenElement(
-                            id=f"a11y-{idx}",
-                            type=kind,
-                            text=text,
-                            role=str(ctrl.element_info.control_type),
-                            x=max(0, int(rec.left) - left),
-                            y=max(0, int(rec.top) - top),
-                            width=max(8, int(rec.width())),
-                            height=max(8, int(rec.height())),
-                            confidence=0.92,
-                            source="ACCESSIBILITY",
-                        )
-                    )
-                    idx += 1
-                except Exception:
-                    continue
-    except Exception:
-        return []
-    return found
+    from src.agent.a11y import collect_elements
+
+    return collect_elements(region)

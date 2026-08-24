@@ -57,6 +57,7 @@ if errorlevel 1 (
   pip install PyYAML PyQt5 Pillow numpy pyautogui pyperclip SpeechRecognition nltk pytest
   pip install opencv-python pytesseract mss openai google-genai spacy
 )
+pip install pywinauto >nul 2>&1
 
 echo [4/6] Optional microphone library (safe to skip — Chrome voice still works)
 pip install -r requirements-optional.txt

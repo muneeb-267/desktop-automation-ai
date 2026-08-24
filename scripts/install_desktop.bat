@@ -20,6 +20,7 @@ python -m venv .venv
 call .venv\Scripts\activate.bat
 python -m pip install -U pip
 pip install -r requirements.txt
+pip install pywinauto >nul 2>&1
 pip install -r requirements-optional.txt
 if errorlevel 1 echo [i] PyAudio optional — Chrome voice still works.
 python -m pip install PyYAML >nul 2>&1

@@ -139,6 +139,7 @@ src/
   gui/                  → PyQt5 presentation layer
   speech/               → Microphone API + Speech-to-Text
   nlp/                  → spaCy / NLTK intent + entities
+  agent/                → hybrid click resolver (accessibility / OCR / vision)
   vision/               → OpenCV + Tesseract
   automation/           → PyAutoGUI engine
   workflows/            → multi-step macros
@@ -180,3 +181,11 @@ pytest -q
 Local 3-tier design:
 
 **Presentation (PyQt5) → Logic (Speech + NLP + Vision + Automation) → Data (SQLite)**
+
+Clicks are **not** exact-text screenshot matches. The agent plans the instruction, then resolves the target in this order:
+
+1. **Accessibility tree** (Windows UI Automation via optional `pywinauto`)
+2. **OCR screen model** (case-insensitive / semantic text, e.g. “click Microsoft” → “login With Microsoft”)
+3. **Vision** (Tesseract / template fallback)
+
+After each click it verifies **PAGE_CHANGED** (pixel change, window title, or URL — including Microsoft login domains). If that fails it recovers with the next strategy before asking “What's next?”. Chrome launched by the app uses `--force-renderer-accessibility` and `--remote-debugging-port=9222` so the accessibility and page-URL layers can attach.

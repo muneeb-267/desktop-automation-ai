@@ -38,6 +38,12 @@ echo Installing required packages (PyYAML first)...
 "%PY%" -m pip install PyYAML
 "%PY%" -m pip install PyQt5 Pillow numpy pyautogui pyperclip SpeechRecognition nltk pytest
 "%PY%" -m pip install opencv-python pytesseract mss openai google-genai spacy
+echo.
+echo Optional Windows accessibility (hybrid clicks — safe to skip on failure)...
+"%PY%" -m pip install pywinauto
+if errorlevel 1 (
+  echo [i] pywinauto did not install. OCR/vision clicks still work.
+)
 if exist requirements.txt (
   echo Installing remaining requirements (no PyAudio)...
   "%PY%" -m pip install -r requirements.txt
