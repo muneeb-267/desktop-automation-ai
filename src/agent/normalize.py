@@ -19,9 +19,14 @@ _REPLACEMENTS = (
     (r"\bnote\s*pad\b", "notepad"),
     (r"\byou\s*tube\b", "youtube"),
     (r"\bgo to sleep\b", "dai sleep"),
-    (r"\bsecong\b", "second"),
-    (r"\bthrid\b", "third"),
     (r"\bfisrt\b", "first"),
+    (r"\bfist\s+result\b", "first result"),
+    (r"\bfist\s+link\b", "first link"),
+    (r"\bfrist\b", "first"),
+    (r"\bsecand\b", "second"),
+    (r"\bsecon\s+d\b", "second"),
+    (r"\bthrid\b", "third"),
+    (r"\blinks\b", "link"),
 )
 
 

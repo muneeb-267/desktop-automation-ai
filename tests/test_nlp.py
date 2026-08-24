@@ -152,6 +152,23 @@ def test_ambiguous_and_malformed():
     click_help = engine.parse("help me click the email field")
     assert click_help.intent == "click_text"
 
+    first_link = engine.parse("open the first link")
+    assert first_link.intent == "click_text"
+    assert first_link.entities.get("result_index") == 1
+    assert first_link.entities.get("first_result") is True
+
+    second_link = engine.parse("click on the second link")
+    assert second_link.intent == "click_text"
+    assert second_link.entities.get("result_index") == 2
+
+    the_one = engine.parse("the first one")
+    assert the_one.intent == "click_text"
+    assert the_one.entities.get("result_index") == 1
+
+    result_two = engine.parse("click result 2")
+    assert result_two.intent == "click_text"
+    assert result_two.entities.get("result_index") == 2
+
 
 def test_search_and_bare_click_is_first_result():
     engine = NLPEngine()

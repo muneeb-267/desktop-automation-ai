@@ -154,7 +154,8 @@ def clean_spoken_command(text: str) -> str:
     t = normalize(text)
     t = re.sub(
         r"^(please|pls|just|now|um|uh|so|okay|ok|can you|could you|would you|"
-        r"i want you to|i need you to|go ahead and|kindly)\s+",
+        r"i want you to|i need you to|you should|i am saying|i'm saying|"
+        r"go ahead and|kindly|basically)\s+",
         "",
         t,
     )

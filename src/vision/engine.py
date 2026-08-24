@@ -129,7 +129,7 @@ class VisionEngine:
         cv2.imwrite(str(path), bgr)
         return str(path)
 
-    def _tesseract_pass(self, gray, psm: int, min_conf: float = 18.0) -> List[Dict[str, Any]]:
+    def _tesseract_pass(self, gray, psm: int, min_conf: float = 15.0) -> List[Dict[str, Any]]:
         try:
             import pytesseract
             from pytesseract import Output
@@ -140,7 +140,7 @@ class VisionEngine:
                 gray,
                 lang=self.ocr_lang,
                 output_type=Output.DICT,
-                config=f"--psm {psm}",
+                config=f"--oem 3 --psm {psm} -c preserve_interword_spaces=1",
             )
         except Exception:
             return []
@@ -170,29 +170,61 @@ class VisionEngine:
             )
         return words
 
-    def _ocr_words(self, img) -> List[Dict[str, Any]]:
-        """Read UI text. Dark buttons need an inverted pass (Horizon Microsoft login)."""
+    def _ocr_scale_words(self, words: List[Dict[str, Any]], scale: float) -> List[Dict[str, Any]]:
+        if not words or abs(scale - 1.0) < 0.01:
+            return words
+        out: List[Dict[str, Any]] = []
+        for item in words:
+            row = dict(item)
+            for key in ("x", "y", "w", "h"):
+                row[key] = int(round(int(row.get(key) or 0) / scale))
+            out.append(row)
+        return out
+
+    def _ocr_preprocessed(self, img) -> Tuple[float, List[Any]]:
+        """Gray / invert / contrast / adaptive variants, optionally upscaled for Tesseract."""
         import cv2
 
+        h, w = img.shape[:2]
+        scale = 1.0
+        work = img
+        if w < 1400:
+            scale = 1.7 if w < 1100 else 1.4
+            work = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        gray = cv2.cvtColor(work, cv2.COLOR_RGB2GRAY)
+        try:
+            clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8))
+            contrast = clahe.apply(gray)
+        except Exception:
+            contrast = gray
+        inverted = cv2.bitwise_not(gray)
+        inverted_c = cv2.bitwise_not(contrast)
+        adaptive = cv2.adaptiveThreshold(
+            contrast, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 9
+        )
+        return scale, [gray, inverted, contrast, inverted_c, adaptive]
+
+    def _ocr_words(self, img) -> List[Dict[str, Any]]:
+        """Read UI text with several Tesseract passes (dark UI + small Google titles)."""
         from src.vision.ocr_text import merge_ocr_words
 
         if img is None or getattr(img, "size", 0) == 0:
             return []
         try:
-            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            scale, variants = self._ocr_preprocessed(img)
         except Exception:
             return []
-        inverted = cv2.bitwise_not(gray)
-        passes = [
-            self._tesseract_pass(gray, 11),
-            self._tesseract_pass(inverted, 11),
-        ]
-        words = merge_ocr_words(passes)
-        if len(words) < 8:
-            extra = merge_ocr_words(
-                [self._tesseract_pass(gray, 6), self._tesseract_pass(inverted, 6)]
-            )
-            words = merge_ocr_words([words, extra])
+        primary = variants[:4]
+        passes = [self._tesseract_pass(im, 11, min_conf=14.0) for im in primary]
+        words = self._ocr_scale_words(merge_ocr_words(passes), scale)
+        if len(words) < 14:
+            extra = []
+            for im in primary:
+                extra.append(self._tesseract_pass(im, 6, min_conf=12.0))
+            extra.append(self._tesseract_pass(variants[0], 4, min_conf=12.0))
+            extra.append(self._tesseract_pass(variants[1], 4, min_conf=12.0))
+            more = self._ocr_scale_words(merge_ocr_words(extra), scale)
+            words = merge_ocr_words([words, more])
         return words
 
     def find_text(self, query: str, frame: Optional[np.ndarray] = None) -> DetectionResult:
@@ -284,7 +316,7 @@ class VisionEngine:
                 found=False,
                 label=f"result {index}",
                 method="search-result",
-                boxes=list(words) + list(ranked),
+                boxes=list(ranked),
             )
         return DetectionResult(
             found=True,
@@ -295,7 +327,7 @@ class VisionEngine:
             label=str(hit.get("label") or f"result {index}"),
             method="search-result",
             confidence=0.9,
-            boxes=list(words) + list(ranked),
+            boxes=list(ranked),
         )
 
     def find_template(

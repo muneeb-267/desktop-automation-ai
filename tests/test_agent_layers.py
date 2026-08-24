@@ -61,7 +61,18 @@ def test_session_keeps_history_without_secrets():
     assert "Waiting for next instruction" in lines
 
 
-def test_element_match_ranks_microsoft_login():
+def test_interpreter_clicks_first_and_second_links():
+    interp = CommandInterpreter()
+    first = interp.interpret("open the first link", is_final=True)
+    assert first.actions
+    assert first.actions[0].type == "CLICK"
+    assert first.actions[0].parameters.get("result_index") == 1
+    second = interp.interpret("click the second result", is_final=True)
+    assert second.actions[0].type == "CLICK"
+    assert second.actions[0].parameters.get("result_index") == 2
+    polite = interp.interpret("you should open the first link", is_final=True)
+    assert polite.actions
+    assert polite.actions[0].parameters.get("result_index") == 1
     els = [
         ScreenElement(id="1", type="button", text="Login", x=10, y=10, width=80, height=30),
         ScreenElement(id="2", type="button", text="Login with Microsoft", x=10, y=80, width=220, height=40),

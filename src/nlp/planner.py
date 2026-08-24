@@ -7,7 +7,13 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
 from src.nlp.engine import ParsedCommand, _fill_empty_clicks_after_search
-from src.vision.search_result import FIRST_RESULT_ELEMENT, first_result_entities, is_first_result_phrase
+from src.vision.search_result import (
+    FIRST_RESULT_ELEMENT,
+    first_result_entities,
+    is_first_result_phrase,
+    parse_result_index,
+    ranked_result_entities,
+)
 
 SUGGESTIONS = [
     "Open Chrome",
@@ -34,8 +40,14 @@ def _title_for(intent: str, entities: Dict[str, Any]) -> str:
     if intent == "search_web":
         return f'Search Google for “{query}”' if query else "Search the web"
     if intent in ("click_text", "click_button"):
-        if is_first_result_phrase(element) or element == FIRST_RESULT_ELEMENT:
-            return "Click the first search result"
+        idx = int(entities.get("result_index") or 0) or (
+            1
+            if is_first_result_phrase(element) or element == FIRST_RESULT_ELEMENT
+            else 0
+        )
+        if idx:
+            ordinal = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth"}.get(idx, str(idx))
+            return f"Click the {ordinal} search result"
         return f'Click “{element or "target"}” on screen'
     if intent == "type_text":
         shown = text if len(text) < 40 else text[:37] + "…"
@@ -219,21 +231,22 @@ class CommandPlanner:
         lower = raw.lower()
         has_search = any(s.intent == "search_web" for s in planned)
         has_click = any(s.intent in ("click_text", "click_button") for s in planned)
-        has_first = any(
-            is_first_result_phrase(str(s.entities.get("element") or ""))
+        has_ranked = any(
+            int(s.entities.get("result_index") or 0)
             or s.entities.get("first_result")
+            or is_first_result_phrase(str(s.entities.get("element") or ""))
             for s in planned
         )
-        if has_search and not has_first and (
-            re.search(
-                r"\b(first|second|third|fourth|fifth|top|1st|2nd|3rd)\s+(search\s+)?(result|link|hit)\b",
-                lower,
-            )
-            or (not has_click and re.search(r"\b(click|tap)\b", lower))
-        ):
-            add("inspect_screen", first_result_entities(), kind="inspect")
-            add("click_text", first_result_entities(), kind="action")
-            add("verify_screen", {"expect": "page_changed"}, kind="verify")
+        spoken_idx = parse_result_index(raw)
+        if has_search and not has_ranked:
+            if spoken_idx:
+                add("inspect_screen", ranked_result_entities(spoken_idx), kind="inspect")
+                add("click_text", ranked_result_entities(spoken_idx), kind="action")
+                add("verify_screen", {"expect": "page_changed"}, kind="verify")
+            elif not has_click and re.search(r"\b(click|tap)\b", lower):
+                add("inspect_screen", first_result_entities(), kind="inspect")
+                add("click_text", first_result_entities(), kind="action")
+                add("verify_screen", {"expect": "page_changed"}, kind="verify")
 
         # Collapse consecutive duplicate waits
         cleaned: List[PlanStep] = []

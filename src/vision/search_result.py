@@ -26,17 +26,40 @@ _ORDINALS = {
     "five": 5,
 }
 
+_WHICH = (
+    r"(?P<which>first|second|third|fourth|fifth|top|1st|2nd|3rd|4th|5th|"
+    r"one|two|three|four|five|\d+(?:st|nd|rd|th)?)"
+)
+_RESULT_NOUN = r"(?:search\s+)?(?:results?|links?|hits?|ones?|items?|listing|website|site)"
+
 _RESULT_PHRASE = re.compile(
-    r"\b(?:click|tap|open|go\s+to)?\s*(?:on\s+)?(?:the\s+)?(?P<which>"
-    r"first|second|third|fourth|fifth|top|1st|2nd|3rd|4th|5th|"
-    r"one|two|three|four|five|\d+(?:st|nd|rd|th)?"
-    r")\s+(?:search\s+)?(?:result|link|hit)\b",
+    r"\b(?:(?:click|tap|open|select|choose|pick|press|go\s+to)\s+)?"
+    r"(?:on\s+)?(?:the\s+)?(?:number\s+)?"
+    + _WHICH
+    + r"\s+"
+    + _RESULT_NOUN
+    + r"\b",
     re.I,
 )
 _RESULT_ONLY = re.compile(
-    r"^(?:on\s+)?(?:the\s+)?(?P<which>first|second|third|fourth|fifth|top|"
-    r"1st|2nd|3rd|4th|5th|one|two|three|four|five|\d+(?:st|nd|rd|th)?)"
-    r"\s+(?:search\s+)?(?:result|link|hit)$",
+    r"^(?:on\s+)?(?:the\s+)?"
+    + _WHICH
+    + r"\s+"
+    + _RESULT_NOUN
+    + r"$",
+    re.I,
+)
+_RESULT_AFTER = re.compile(
+    r"\b(?:result|link|hit)s?\s+(?:number\s+|no\.?\s+|#\s*)?"
+    r"(?P<which>first|second|third|fourth|fifth|one|two|three|four|five|\d+(?:st|nd|rd|th)?)\b",
+    re.I,
+)
+_THE_ONE = re.compile(
+    r"\b(?:the\s+)?" + _WHICH + r"\s+one\b",
+    re.I,
+)
+_NUMBER_N = re.compile(
+    r"\bnumbers?\s+(?P<which>one|two|three|four|five|first|second|third|fourth|fifth|\d+)\b",
     re.I,
 )
 
@@ -78,12 +101,25 @@ def parse_result_index(text: str) -> Optional[int]:
     t = " ".join((text or "").lower().split())
     if not t:
         return None
-    if t in {FIRST_RESULT_ELEMENT, "1", "first", "first result"}:
+    if t in {
+        FIRST_RESULT_ELEMENT,
+        "1",
+        "first",
+        "first result",
+        "first link",
+        "first one",
+        "the first one",
+        "top result",
+        "top link",
+    }:
         return 1
-    m = _RESULT_PHRASE.search(t) or _RESULT_ONLY.match(t)
-    if not m:
-        return None
-    return _which_to_index(m.group("which"))
+    for pat in (_RESULT_ONLY, _RESULT_PHRASE, _RESULT_AFTER, _THE_ONE, _NUMBER_N):
+        m = pat.search(t) if pat is not _RESULT_ONLY else pat.match(t)
+        if m:
+            idx = _which_to_index(m.group("which"))
+            if idx:
+                return idx
+    return None
 
 
 def is_first_result_phrase(text: str) -> bool:
@@ -107,10 +143,21 @@ def is_bare_click_phrase(text: str) -> bool:
 
 
 def first_result_entities() -> Dict[str, Any]:
+    return ranked_result_entities(1)
+
+
+def ranked_result_entities(index: int = 1) -> Dict[str, Any]:
+    idx = max(1, min(9, int(index or 1)))
+    if idx == 1:
+        return {
+            "element": FIRST_RESULT_ELEMENT,
+            "first_result": True,
+            "result_index": 1,
+        }
     return {
-        "element": FIRST_RESULT_ELEMENT,
-        "first_result": True,
-        "result_index": 1,
+        "element": f"result {idx}",
+        "first_result": False,
+        "result_index": idx,
     }
 
 
@@ -313,10 +360,11 @@ def link_bands_from_frame(frame) -> List[Dict[str, Any]]:
     r = img[:, :, 0].astype("int16")
     g = img[:, :, 1].astype("int16")
     b = img[:, :, 2].astype("int16")
-    # Dark-mode Google links (~#8ab4f8) and classic blue titles.
-    dark_mode = (b > 175) & (g > 130) & (r < 190) & (b > r + 20)
-    classic = (b > 150) & (r < 90) & (g < 150) & (b > g)
-    mask = dark_mode | classic
+    # Dark-mode Google links (~#8ab4f8), classic blue titles, visited purple.
+    dark_mode = (b > 170) & (g > 125) & (r < 200) & (b > r + 15)
+    classic = (b > 145) & (r < 95) & (g < 155) & (b > g)
+    visited = (r > 120) & (b > 150) & (g < 140) & (b > r)
+    mask = dark_mode | classic | visited
     left = int(w * 0.06)
     right = int(w * 0.72)
     top = 90

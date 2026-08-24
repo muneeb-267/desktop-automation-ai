@@ -13,9 +13,22 @@ from src.vision.search_result import (
 def test_first_result_phrases():
     assert is_first_result_phrase("click on the first result")
     assert is_first_result_phrase("open the first result")
+    assert is_first_result_phrase("open the first link")
     assert is_first_result_phrase("first result")
+    assert is_first_result_phrase("the first one")
     assert is_first_result_phrase(FIRST_RESULT_ELEMENT)
     assert not is_first_result_phrase("click login")
+
+
+def test_second_and_third_link_phrases():
+    assert parse_result_index("click on the second result") == 2
+    assert parse_result_index("click the second link") == 2
+    assert parse_result_index("open the second link") == 2
+    assert parse_result_index("the second one") == 2
+    assert parse_result_index("click result 2") == 2
+    assert parse_result_index("select the third result") == 3
+    assert parse_result_index("open the third result") == 3
+    assert parse_result_index("pick the first link") == 1
 
 
 def test_bare_click_phrases():

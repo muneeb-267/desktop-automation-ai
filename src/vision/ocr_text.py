@@ -55,7 +55,7 @@ def merge_ocr_words(passes: Iterable[List[dict]]) -> List[dict]:
             x, y = int(item.get("x") or 0), int(item.get("y") or 0)
             dup = False
             for prev in merged:
-                if abs(int(prev["x"]) - x) <= 8 and abs(int(prev["y"]) - y) <= 8:
+                if abs(int(prev["x"]) - x) <= 12 and abs(int(prev["y"]) - y) <= 10:
                     if label.lower() == str(prev.get("label") or "").lower():
                         if float(item.get("conf") or 0) > float(prev.get("conf") or 0):
                             prev.update({**item, "label": label})

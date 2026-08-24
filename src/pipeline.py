@@ -480,8 +480,26 @@ class AutomationPipeline:
 
     def _click_ranked_result(self, index: int, frame, result: Dict[str, Any]) -> Dict[str, Any]:
         emit = getattr(self, "_status_cb", None) or (lambda _m: None)
+        index = max(1, int(index or 1))
         detection = self.vision.find_ranked_search_result(index, frame)
-        boxes = list(detection.boxes or [])
+        if not detection.found:
+            emit(f"Reading the page again for result {index}…")
+            time.sleep(0.35)
+            frame = self.vision.capture_screen()
+            self.automation.capture_region = dict(self.vision.last_region)
+            detection = self.vision.find_ranked_search_result(index, frame)
+        boxes = [b for b in (detection.boxes or []) if b.get("index")]
+        if not detection.found and boxes:
+            hit = next((b for b in boxes if int(b.get("index") or 0) == index), None)
+            if hit is None and boxes:
+                hit = boxes[min(index, len(boxes)) - 1]
+            detection.found = True
+            detection.x = int(hit["x"] + int(hit.get("w") or hit.get("width") or 8) // 2)
+            detection.y = int(hit["y"] + int(hit.get("h") or hit.get("height") or 8) // 2)
+            detection.width = int(hit.get("w") or hit.get("width") or 8)
+            detection.height = int(hit.get("h") or hit.get("height") or 8)
+            detection.label = str(hit.get("label") or f"result {index}")
+            detection.confidence = 0.82
         result["detection"] = {
             "found": detection.found,
             "x": detection.x,
@@ -493,38 +511,22 @@ class AutomationPipeline:
             "label": detection.label,
         }
         result["boxes"] = boxes
-        visible = [
-            {
-                "text": str(b.get("label") or b.get("text") or ""),
-                "x": b.get("x"),
-                "y": b.get("y"),
-                "width": b.get("w") or b.get("width"),
-                "height": b.get("h") or b.get("height"),
-                "score": 0.8,
-            }
-            for b in boxes
-            if b.get("index") or b.get("label")
-        ]
-        visible = [v for v in visible if v.get("text")][:6]
         if not detection.found:
-            if visible:
-                result["needs_confirm"] = True
-                result["confirm_prompt"] = (
-                    f"I can see {len(visible)} result(s) on this screen. "
-                    f"Which one should I click?"
-                )
-                result["candidates"] = visible
-                return result
             raise RuntimeError(
-                "I cannot see ranked search results on the current screen. "
-                "Make sure the Google results are visible, then say "
-                "click the first result or click Login With Odoo."
+                f"I cannot see result {index} on the current Chrome page. "
+                "Make sure Google results are visible, then say "
+                "click the first link or click the second result."
             )
-        emit(f"◆highlight {detection.x - detection.width // 2} {detection.y - detection.height // 2} {detection.width} {detection.height}")
+        emit(
+            f"◆highlight {detection.x - detection.width // 2} "
+            f"{detection.y - detection.height // 2} {detection.width} {detection.height}"
+        )
         emit(f"Clicking result {index}: {detection.label}…")
         agent_log(f"Candidate: {detection.label}")
         agent_log(f"Confidence: {detection.confidence:.2f}")
-        clicked = self.automation.click(detection.x, detection.y, label=detection.label or f"result {index}")
+        clicked = self.automation.click(
+            detection.x, detection.y, label=detection.label or f"result {index}"
+        )
         time.sleep(0.4)
         after = self.vision.capture_screen()
         check = self.vision.frame_changed(frame, after, threshold=0.01)
@@ -609,7 +611,15 @@ class AutomationPipeline:
             if ranked.best:
                 agent_log(f"Candidate: {ranked.best.element.text}")
                 agent_log(f"Confidence: {ranked.best.score:.2f}")
-            if ranked.ambiguous or (ranked.best and ranked.band == "medium"):
+            unique_medium = bool(
+                ranked.best
+                and ranked.band == "medium"
+                and (
+                    len(ranked.matches) < 2
+                    or ranked.matches[1].score < ranked.best.score - 0.12
+                )
+            )
+            if ranked.ambiguous:
                 result["needs_confirm"] = True
                 result["confirm_prompt"] = ranked.message or (
                     f"I found “{ranked.best.element.text}”. Do you mean this?"
@@ -627,7 +637,25 @@ class AutomationPipeline:
                 ]
                 result["capture_path"] = state.capture_path
                 return result
-            if ranked.best and ranked.band == "high":
+            if ranked.best and ranked.band == "medium" and not unique_medium:
+                result["needs_confirm"] = True
+                result["confirm_prompt"] = ranked.message or (
+                    f"I found “{ranked.best.element.text}”. Do you mean this?"
+                )
+                result["candidates"] = [
+                    {
+                        "text": m.element.text,
+                        "score": m.score,
+                        "x": m.element.x,
+                        "y": m.element.y,
+                        "width": m.element.width,
+                        "height": m.element.height,
+                    }
+                    for m in ranked.matches[:3]
+                ]
+                result["capture_path"] = state.capture_path
+                return result
+            if ranked.best and (ranked.band == "high" or unique_medium):
                 el = ranked.best.element
                 emit(f"◆highlight {el.x} {el.y} {el.width} {el.height}")
                 emit(f"Clicking {el.text}…")

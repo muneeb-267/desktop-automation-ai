@@ -47,3 +47,16 @@ def test_planner_bare_click_after_search_is_first_result():
     assert clicks
     assert clicks[-1].entities.get("first_result") is True
     assert clicks[-1].entities.get("result_index") == 1
+
+
+def test_planner_second_result_is_not_rewritten_to_first():
+    nlp = NLPEngine()
+    parsed = nlp.parse(
+        "Open Chrome and search ucp student portal and click the second result"
+    )
+    plan = CommandPlanner().plan(parsed, parsed.raw_text)
+    clicks = [s for s in plan.steps if s.intent == "click_text"]
+    assert clicks
+    assert clicks[-1].entities.get("result_index") == 2
+    assert not clicks[-1].entities.get("first_result")
+    assert not any(s.entities.get("first_result") for s in clicks)
